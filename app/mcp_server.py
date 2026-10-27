@@ -163,19 +163,21 @@ def memory_period_digest(project: str, start_date: str, end_date: str) -> dict:
 
 @mcp.tool()
 def memory_archive(project: str, date: str, summary: str,
-                   covered_ids: list[int], title: str = "") -> dict:
+                   covered_ids: list[int], title: str = "",
+                   system: str = "") -> dict:
     """归档第二步：提交总结，覆盖的条目自动标记为已归档。
 
     title 可选：每日归档可省略；链路周期总结建议传
     「链路周期总结 YYYY-MM-DD ~ YYYY-MM-DD」便于页面展示。
+    system 传系统标识（主机名|操作系统），用于界面区分来源。
     """
     security.check_project(project)
     conn = db.get_conn()
     row = db.insert_memory(conn, project, {
         "category": "archive", "title": title or "每日归档 %s" % date,
         "content": summary, "tags": ["archive", date],
-    }, "mcp")
-    security.log("write", project, "mcp", memory_id=row["id"],
+    }, "mcp", system)
+    security.log("write", project, "mcp", system, row["id"],
                  detail="archive %s" % date)
     marked = db.mark_archived(conn, covered_ids)
     result = _out(row)

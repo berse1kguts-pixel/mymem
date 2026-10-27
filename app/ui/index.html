@@ -583,14 +583,13 @@ function render(all) {
   };
 
   // 分组卡片（按项目 / 按 Agent）
+  // 总结（archive）只在「链路总结」区展示，不进工作卡
+  const work = items.filter((m) => m.category !== "archive");
   const groups = {};
   if (groupMode === "project") {
-    for (const it of items) (groups[it.project] = groups[it.project] || []).push(it);
+    for (const it of work) (groups[it.project] = groups[it.project] || []).push(it);
   } else {
-    for (const it of items) {
-      const key = it.source_agent + " " + (it.source_system || "");
-      (groups[key] = groups[key] || []).push(it);
-    }
+    for (const it of work) (groups[it.source_agent] = groups[it.source_agent] || []).push(it);
   }
   const cards = Object.entries(groups).map(([key, list]) => {
     const mems = list.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -602,9 +601,11 @@ function render(all) {
       sub = `<div class="agent-tags">` + Object.entries(cnt).map(([a, n]) =>
         `<span class="${tagClass(a)}">${esc(a)} · ${n}条</span>`).join("") + `</div>`;
     } else {
-      const i = key.indexOf(" ");
-      head = esc(key.slice(0, i));
-      sub = `<div class="agent-sys">SYSTEM · ${esc(key.slice(i + 1) || "未标识")}</div>`;
+      head = esc(key);
+      // 汇总该 agent 卡内去重的来源系统（空 system 不显示"未标识"）
+      const sys = [...new Set(list.map((m) => m.source_system).filter(Boolean))];
+      sub = sys.length
+        ? `<div class="agent-sys">SYSTEM · ${sys.map(esc).join(" · ")}</div>` : "";
     }
     const memHtml = (m, cls) => `
         <div class="mem${cls}">
@@ -665,7 +666,7 @@ function render(all) {
             <span class="pill p-${m.category}">${CAT_CN[m.category]}</span>
             <span>${esc(m.project)}</span>
             <span>${esc(m.source_agent)}</span>
-            <span>${esc(m.source_system)}</span>
+            ${m.source_system ? `<span>${esc(m.source_system)}</span>` : ""}
             ${m.archived ? '<span class="archived-mark">已归档</span>' : ""}
           </div>
         </div>

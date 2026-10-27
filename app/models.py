@@ -62,4 +62,5 @@ class DigestRequest(BaseModel):
     summary: str = Field(min_length=1)
     covered_ids: list[int] = []
     agent: str = "unknown"
+    system: str = ""  # 系统标识：主机名|操作系统
     title: str = ""   # 可选：链路周期总结等自定义标题

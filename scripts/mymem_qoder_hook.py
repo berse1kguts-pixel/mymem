@@ -28,6 +28,11 @@ import tempfile
 import urllib.parse
 import urllib.request
 
+# 钩子的 stdout 由宿主按 UTF-8 解析；Windows 控制台默认 GBK 会把中文写成非 UTF-8 字节，
+# 导致 Qoder/Antigravity 解不出注入内容、钩子等于白跑，这里强制 UTF-8
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 LOG_PATH = os.path.join(tempfile.gettempdir(), "mymem_qoder_hook.log")
 
 

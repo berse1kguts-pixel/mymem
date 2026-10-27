@@ -142,13 +142,13 @@ def daily_digest(project: str = Query(...),
 def archive_digest(req: models.DigestRequest):
     """提交每日归档总结：生成 archive 记忆，并把 covered_ids 标记为已归档。"""
     conn = db.get_conn()
-    _guard(req.project, "write", req.agent, detail="archive %s" % req.date)
+    _guard(req.project, "write", req.agent, req.system, detail="archive %s" % req.date)
     data = db.insert_memory(conn, req.project, {
         "category": "archive",
         "title": req.title or "每日归档 %s" % req.date,
         "content": req.summary,
         "tags": ["archive", req.date],
-    }, req.agent)
+    }, req.agent, req.system)
     marked = db.mark_archived(conn, req.covered_ids)
     out = _out(data)
     return out.model_copy(update={"tags": out.tags + ["covered:%d" % marked]})
