@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mymem · AI 记忆中心</title>
+<style>
+  :root {
+    --bg: #f6f7fb; --card: #ffffff; --ink: #1f2430; --muted: #6b7280;
+    --line: #e5e7eb; --accent: #4f46e5; --accent-soft: #eef2ff;
+    --decision: #4f46e5; --lesson: #d97706; --convention: #059669;
+    --context: #0284c7; --archive: #7c3aed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--line);
+    padding: 18px 28px; display: flex; flex-wrap: wrap;
+    align-items: center; gap: 14px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 19px; margin: 0; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .controls { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+  input, select, button {
+    font: inherit; padding: 7px 12px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff; color: var(--ink);
+  }
+  button {
+    background: var(--accent); border-color: var(--accent);
+    color: #fff; cursor: pointer;
+  }
+  button:hover { opacity: .9; }
+  main { max-width: 1200px; margin: 22px auto; padding: 0 22px; }
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px; margin-bottom: 22px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .stat .num { font-size: 26px; font-weight: 700; }
+  .stat .label { color: var(--muted); font-size: 12px; }
+  h2 { font-size: 16px; margin: 26px 0 12px; }
+  .agent-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 16px;
+  }
+  .agent-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px 18px;
+  }
+  .agent-card .name {
+    font-weight: 700; display: flex; align-items: center; gap: 8px;
+  }
+  .agent-card .sys {
+    color: var(--muted); font-size: 12px; margin: 4px 0 10px;
+    word-break: break-all;
+  }
+  .count-badge {
+    background: var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 1px 10px; font-size: 12px;
+  }
+  .mem {
+    border-top: 1px solid var(--line); padding: 9px 0;
+  }
+  .mem:first-of-type { border-top: 0; }
+  .mem .title { font-weight: 600; }
+  .mem .content { color: var(--muted); font-size: 13px; white-space: pre-wrap; }
+  .tag {
+    display: inline-block; border-radius: 6px; padding: 0 8px;
+    font-size: 11px; color: #fff; margin-right: 6px; vertical-align: 1px;
+  }
+  .c-decision { background: var(--decision); }
+  .c-lesson { background: var(--lesson); }
+  .c-convention { background: var(--convention); }
+  .c-context { background: var(--context); }
+  .c-archive { background: var(--archive); }
+  .time { color: var(--muted); font-size: 11px; }
+  .archived-mark { color: var(--muted); font-size: 11px; }
+  .empty {
+    background: var(--card); border: 1px dashed var(--line);
+    border-radius: 12px; padding: 40px; text-align: center; color: var(--muted);
+  }
+  table { width: 100%; border-collapse: collapse; background: var(--card); }
+  th, td {
+    text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-size: 12px; font-weight: 600; }
+  #error { color: #dc2626; margin: 12px 0; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>mymem · <span>AI 记忆中心</span></h1>
+    <div class="sub">今天做了什么 · 哪个 agent 做的 · 合并到统一记忆库</div>
+  </div>
+  <div class="controls">
+    <input type="date" id="date">
+    <input type="text" id="project" placeholder="项目（可选）">
+    <input type="password" id="token" placeholder="访问令牌（可选）">
+    <button id="reload">查询</button>
+  </div>
+</header>
+
+<main>
+  <div id="error"></div>
+  <div class="stats" id="stats"></div>
+
+  <h2>各 agent 今日工作</h2>
+  <div class="agent-grid" id="agents"></div>
+
+  <h2>时间线</h2>
+  <div id="timeline"></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const CATEGORIES = ["decision", "lesson", "convention", "context", "archive"];
+const CAT_CN = { decision: "决策", lesson: "教训", convention: "约定",
+                 context: "上下文", archive: "归档" };
+
+$("date").value = new Date().toISOString().slice(0, 10);
+$("token").value = localStorage.getItem("mymem_token") || "";
+
+function headers() {
+  const t = $("token").value.trim();
+  if (t) localStorage.setItem("mymem_token", t);
+  return t ? { "Authorization": "Bearer " + t } : {};
+}
+
+function fmtTime(iso) {
+  return iso ? iso.replace("T", " ").slice(0, 16) : "";
+}
+
+function esc(s) {
+  return (s || "").replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+async function load() {
+  $("error").style.display = "none";
+  const date = $("date").value;
+  const project = $("project").value.trim();
+  const params = new URLSearchParams({ date, limit: 500, include_archived: "true" });
+  if (project) params.set("project", project);
+  try {
+    const resp = await fetch("/api/v1/memories?" + params, { headers: headers() });
+    if (!resp.ok) throw new Error("HTTP " + resp.status + " " + await resp.text());
+    render(await resp.json());
+  } catch (e) {
+    $("error").textContent = "加载失败：" + e.message;
+    $("error").style.display = "block";
+  }
+}
+
+function render(items) {
+  // 统计卡
+  const byCat = {};
+  const byAgent = {};
+  for (const it of items) {
+    byCat[it.category] = (byCat[it.category] || 0) + 1;
+    const key = it.source_agent + "\u0000" + it.source_system;
+    (byAgent[key] = byAgent[key] || []).push(it);
+  }
+  const statHtml = [
+    `<div class="stat"><div class="num">${items.length}</div>
+       <div class="label">今日记忆总数</div></div>`,
+    `<div class="stat"><div class="num">${Object.keys(byAgent).length}</div>
+       <div class="label">参与的 agent</div></div>`,
+    ...CATEGORIES.filter((c) => byCat[c]).map((c) =>
+      `<div class="stat"><div class="num">${byCat[c]}</div>
+         <div class="label">${CAT_CN[c]}</div></div>`),
+  ].join("");
+  $("stats").innerHTML = statHtml;
+
+  // 按 agent 分组
+  const agentHtml = Object.entries(byAgent).map(([key, list]) => {
+    const [agent, system] = key.split("\u0000");
+    const mems = list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return `<div class="agent-card">
+      <div class="name">${esc(agent)}
+        <span class="count-badge">${list.length} 条</span></div>
+      <div class="sys">${esc(system || "未标识")}</div>
+      ${mems.map((m) => `
+        <div class="mem">
+          <span class="tag c-${m.category}">${CAT_CN[m.category]}</span>
+          <span class="title">${esc(m.title)}</span>
+          ${m.archived ? '<span class="archived-mark">已归档</span>' : ""}
+          <div class="content">${esc(m.content)}</div>
+          <div class="time">${fmtTime(m.created_at)} · ${esc(m.project)}</div>
+        </div>`).join("")}
+    </div>`;
+  }).join("");
+  $("agents").innerHTML = agentHtml ||
+    `<div class="empty">当天没有记录</div>`;
+
+  // 时间线
+  if (!items.length) {
+    $("timeline").innerHTML = `<div class="empty">当天没有记录</div>`;
+    return;
+  }
+  const rows = items
+    .slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .map((m) => `
+      <tr>
+        <td class="time" style="white-space:nowrap">${fmtTime(m.created_at)}</td>
+        <td><span class="tag c-${m.category}">${CAT_CN[m.category]}</span></td>
+        <td>${esc(m.title)}<div class="content">${esc(m.content)}</div></td>
+        <td>${esc(m.source_agent)}<div class="time">${esc(m.source_system)}</div></td>
+        <td>${esc(m.project)}</td>
+      </tr>`).join("");
+  $("timeline").innerHTML = `<table>
+    <tr><th>时间</th><th>类别</th><th>内容</th><th>agent / 系统</th><th>项目</th></tr>
+    ${rows}</table>`;
+}
+
+$("reload").addEventListener("click", load);
+$("date").addEventListener("change", load);
+load();
+</script>
+</body>
+</html>

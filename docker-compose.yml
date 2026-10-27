@@ -1,0 +1,19 @@
+services:
+  mymem:
+    build: .
+    container_name: mymem
+    restart: unless-stopped
+    ports:
+      - "8700:8700"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=Asia/Shanghai
+      - MYMEM_TOKEN=${MYMEM_TOKEN:-}
+      - MYMEM_SMTP_HOST=${MYMEM_SMTP_HOST:-}
+      - MYMEM_SMTP_PORT=${MYMEM_SMTP_PORT:-465}
+      - MYMEM_SMTP_USER=${MYMEM_SMTP_USER:-}
+      - MYMEM_SMTP_PASSWORD=${MYMEM_SMTP_PASSWORD:-}
+      - MYMEM_SMTP_SSL=${MYMEM_SMTP_SSL:-true}
+      - MYMEM_BACKUP_TO=${MYMEM_BACKUP_TO:-}
+      - MYMEM_BACKUP_TIME=${MYMEM_BACKUP_TIME:-02:00}
