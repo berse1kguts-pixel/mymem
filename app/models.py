@@ -52,6 +52,7 @@ class MemoryOut(BaseModel):
 class IngestResult(BaseModel):
     created: list[MemoryOut] = []
     merged: list[MemoryOut] = []
+    masked: int = 0  # 入库时被打码的敏感串数量
 
 
 class DigestRequest(BaseModel):

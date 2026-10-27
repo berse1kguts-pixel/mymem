@@ -50,6 +50,17 @@ CREATE TRIGGER IF NOT EXISTS mem_au AFTER UPDATE ON memories BEGIN
     INSERT INTO memories_fts(rowid, title, content)
     VALUES (new.id, new.title, new.content);
 END;
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    project    TEXT NOT NULL DEFAULT '',
+    agent      TEXT NOT NULL DEFAULT '',
+    system     TEXT NOT NULL DEFAULT '',
+    memory_id  INTEGER,
+    detail     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project, ts);
 """
 
 _init_lock = threading.Lock()
@@ -70,6 +81,8 @@ def get_conn() -> sqlite3.Connection:
     with _init_lock:
         if not _initialized:
             conn.executescript(_SCHEMA)
+            # 重建 FTS 索引，保证历史数据可检索（幂等）
+            conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
             conn.commit()
             _initialized = True
     return conn
@@ -162,12 +175,19 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
     if q:
         # trigram FTS 对 <3 字符查询无效，退化为 LIKE
         if len(q.strip()) >= 3:
+            # FTS5 的 MATCH / bm25 左操作数需用 FTS 表名（不能用别名）
             sql = ("SELECT m.* FROM memories_fts f JOIN memories m "
                    "ON m.id = f.rowid WHERE memories_fts MATCH ?")
             params = ["\"%s\"" % q.replace('"', '""')] + params
-        else:
-            sql = "SELECT m.* FROM memories m WHERE (m.title LIKE ? OR m.content LIKE ?)"
-            params = ["%%%s%%" % q, "%%%s%%" % q] + params
+            if where:
+                sql += " AND " + " AND ".join(where)
+            sql += (" ORDER BY bm25(memories_fts), m.updated_at DESC "
+                    "LIMIT ? OFFSET ?")
+            params += [limit, offset]
+            rows = conn.execute(sql, params).fetchall()
+            return [_row_to_dict(r) for r in rows]
+        sql = "SELECT m.* FROM memories m WHERE (m.title LIKE ? OR m.content LIKE ?)"
+        params = ["%%%s%%" % q, "%%%s%%" % q] + params
     else:
         sql = "SELECT m.* FROM memories m"
 
@@ -235,3 +255,40 @@ def mark_archived(conn: sqlite3.Connection, ids: list[int]) -> int:
     )
     conn.commit()
     return cur.rowcount
+
+
+def bootstrap_rows(conn: sqlite3.Connection, project: str,
+                   limit: int = 20) -> list[dict]:
+    """会话开始时的必读记忆：项目约定与有效决策，按最近更新排序。"""
+    rows = conn.execute(
+        "SELECT * FROM memories WHERE project=? AND status='active' "
+        "AND archived=0 AND category IN ('convention','decision') "
+        "ORDER BY updated_at DESC LIMIT ?",
+        (project, limit),
+    ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+def log_audit(conn: sqlite3.Connection, action: str, project: str = "",
+              agent: str = "", system: str = "",
+              memory_id: int | None = None, detail: str = "") -> None:
+    """审计留痕：记录谁在何时读写了哪个项目/哪条记忆。"""
+    conn.execute(
+        "INSERT INTO audit_log (ts, action, project, agent, system, "
+        "memory_id, detail) VALUES (?,?,?,?,?,?,?)",
+        (_now(), action, project, agent, system, memory_id, detail),
+    )
+    conn.commit()
+
+
+def audit_rows(conn: sqlite3.Connection, project: str | None = None,
+               limit: int = 50) -> list[dict]:
+    if project:
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE project=? ORDER BY id DESC LIMIT ?",
+            (project, limit)).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?",
+            (limit,)).fetchall()
+    return [dict(r) for r in rows]

@@ -11,6 +11,13 @@ EXPORT_DIR = DATA_DIR / "exports"
 # 访问令牌：设置后所有 /api 与 /mcp 请求需带 Authorization: Bearer <token>
 API_TOKEN = os.environ.get("MYMEM_TOKEN", "")
 
+# 项目级令牌："项目A=tokenA;项目B=tokenB"，持项目 token 只能读写该项目记忆
+PROJECT_TOKENS = dict(
+    part.split("=", 1)
+    for part in os.environ.get("MYMEM_PROJECT_TOKENS", "").split(";")
+    if "=" in part
+)
+
 # 每日备份邮件（SMTP）
 SMTP_HOST = os.environ.get("MYMEM_SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("MYMEM_SMTP_PORT", "465"))

@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from . import api, backup, config
+from . import api, backup, config, security
 from .mcp_server import mcp
 
 mcp_app = mcp.streamable_http_app()
@@ -31,8 +31,12 @@ app = FastAPI(title="mymem", lifespan=lifespan)
 async def auth_middleware(request: Request, call_next):
     if (config.API_TOKEN and request.url.path not in ("/health", "/ui", "/")):
         auth = request.headers.get("Authorization", "")
-        if auth != "Bearer %s" % config.API_TOKEN:
+        token = auth[7:] if auth.startswith("Bearer ") else ""
+        scope = security.set_scope_from_token(token)
+        if scope is None:
             return Response("Unauthorized", status_code=401)
+        # "*"=全局 token；其它=项目 token，只能访问该项目（API/MCP 内校验）
+        security._scope_var.set(scope)
     return await call_next(request)
 
 
