@@ -5,14 +5,14 @@
     "SessionStart": [
       {
         "type": "command",
-        "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --event SessionStart --agent antigravity",
+        "command": "d:\\program\\code\\mymem\\.venv\\Scripts\\python.exe D:/program/code/mymem/scripts/mymem_qoder_hook.py --event SessionStart --agent antigravity",
         "timeout": 30
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --event Stop --agent antigravity",
+        "command": "d:\\program\\code\\mymem\\.venv\\Scripts\\python.exe D:/program/code/mymem/scripts/mymem_qoder_hook.py --event Stop --agent antigravity",
         "timeout": 60
       }
     ]

@@ -7,7 +7,7 @@
           {
             "type": "command",
             "name": "mymem-bootstrap",
-            "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
+            "command": "d:\\program\\code\\mymem\\.venv\\Scripts\\python.exe D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
             "timeout": 20
           }
         ]
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "name": "mymem-report",
-            "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
+            "command": "d:\\program\\code\\mymem\\.venv\\Scripts\\python.exe D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
             "async": true,
             "timeout": 120
           }
@@ -32,7 +32,7 @@
           {
             "type": "command",
             "name": "mymem-report-final",
-            "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
+            "command": "d:\\program\\code\\mymem\\.venv\\Scripts\\python.exe D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
             "timeout": 120
           }
         ]

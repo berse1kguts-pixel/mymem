@@ -51,35 +51,68 @@ def read_stdin() -> dict:
         return {}
 
 
+def git_toplevel(path: str) -> str:
+    try:
+        out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, cwd=path or None,
+                             timeout=15, encoding="utf-8", errors="replace")
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def discover_repos(cwd: str) -> list[str]:
+    """返回要上报的 git 仓库路径列表。
+
+    cwd 是 git 仓库 → [仓库根目录]；
+    否则（多仓库工作区，如 IOT/ 下含 IOT-backend、IOT-frontend）
+    → 扫描一层子目录，返回所有含 .git 的子项目；都没有则回退 [cwd]。
+    """
+    if not cwd:
+        return []
+    top = git_toplevel(cwd)
+    if top:
+        return [top]
+    repos = []
+    try:
+        for name in sorted(os.listdir(cwd)):
+            p = os.path.join(cwd, name)
+            if os.path.isdir(p) and os.path.exists(os.path.join(p, ".git")):
+                repos.append(p)
+    except Exception:
+        pass
+    return repos or [cwd]
+
+
+def repo_name(path: str) -> str:
+    return os.path.basename(git_toplevel(path) or os.path.normpath(path))
+
+
 def resolve_project(arg_project: str, cwd: str) -> str:
     if arg_project:
         return arg_project
     env = os.environ.get("MYMEM_PROJECT", "")
     if env:
         return env
-    try:
-        out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, cwd=cwd or None,
-                             timeout=15, encoding="utf-8", errors="replace")
-        if out.returncode == 0 and out.stdout.strip():
-            return os.path.basename(out.stdout.strip())
-    except Exception:
-        pass
-    # 非 git 仓库也用目录名兜底，避免静默跳过
-    if cwd:
-        name = os.path.basename(os.path.normpath(cwd))
-        if name:
-            return name
-    return ""
+    return repo_name(cwd) if cwd else ""
 
 
 def do_report(project: str, agent: str, cwd: str) -> None:
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "mymem_autoreport.py")
-    subprocess.run([sys.executable, script, "--project", project,
-                    "--agent", agent],
-                   cwd=cwd or None, timeout=120,
-                   capture_output=True, encoding="utf-8", errors="replace")
+    repos = discover_repos(cwd)
+    for rpath in repos:
+        pname = repo_name(rpath) or project
+        cmd = [sys.executable, script, "--project", pname, "--agent", agent, "--cwd", rpath]
+        res = subprocess.run(cmd, cwd=rpath, timeout=120,
+                             capture_output=True, encoding="utf-8", errors="replace")
+        out = (res.stdout or "").strip()
+        err = (res.stderr or "").strip()
+        log_line("[%s] autoreport project=%s rc=%d out=%s err=%s" % (
+            __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+            pname, res.returncode, out or "empty", err or "empty"))
 
 
 def do_bootstrap(project: str, agy: bool) -> None:
@@ -97,9 +130,15 @@ def do_bootstrap(project: str, agy: bool) -> None:
         lines = ["# mymem 项目必读记忆（%s）" % project,
                  "以下为该项目的约定与有效决策，务必遵守：", ""]
         for it in body.get("must_read", []):
-            lines.append("- [%s] %s：%s" % (it.get("category"),
-                                            it.get("title"),
-                                            it.get("content")))
+            tags = it.get("tags") or []
+            # 规则（tags 含 rule）标注为必须遵守，普通约定/决策带类别
+            if "rule" in tags:
+                lines.append("- 【规则·务必遵守】%s：%s" % (it.get("title"),
+                                                        it.get("content")))
+            else:
+                lines.append("- [%s] %s：%s" % (it.get("category"),
+                                                it.get("title"),
+                                                it.get("content")))
         if not body.get("must_read"):
             lines.append("（暂无）")
         text = "\n".join(lines)
