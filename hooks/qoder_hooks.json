@@ -1,0 +1,42 @@
+{
+  "//": "mymem × Qoder 硬钩子配置。合并进 ~/.qoder/settings.json（用户级，全部项目生效）或 <项目>/.qoder/settings.json（仅该项目）。确定性触发，不靠模型自觉。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "mymem-bootstrap",
+            "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "mymem-report",
+            "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
+            "async": true,
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "mymem-report-final",
+            "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --agent qoder",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

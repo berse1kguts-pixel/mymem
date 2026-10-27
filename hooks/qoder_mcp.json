@@ -1,0 +1,20 @@
+{
+  "//": "mymem × Qoder MCP 配置。放到项目根目录 .mcp.json（或并入 .qoder/settings.json 的 mcpServers）。信任 + 免确认，让 Agent 能随时读写记忆。",
+  "mcpServers": {
+    "mymem": {
+      "type": "http",
+      "url": "http://1.92.76.106/mcp",
+      "description": "mymem · 跨 agent 共享记忆中枢（bootstrap / search / add / ingest / 归档）",
+      "trust": true,
+      "alwaysAllow": [
+        "memory_bootstrap",
+        "memory_search",
+        "memory_get",
+        "memory_add",
+        "memory_ingest",
+        "memory_daily_digest",
+        "memory_archive"
+      ]
+    }
+  }
+}
