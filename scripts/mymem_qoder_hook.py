@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
-"""mymem × Qoder 硬钩子调度器。
+"""mymem 硬钩子调度器（兼容 Qoder 与 Antigravity）。
 
-由 Qoder Hooks 的确定性事件触发（settings.json 的 hooks 分组），
-事件触发就执行脚本，不依赖模型自觉：
+由确定性 Hooks 的事件触发，事件触发就执行脚本，不依赖模型自觉：
 
 - SessionStart：拉取项目必读记忆（bootstrap）并注入会话上下文
 - Stop / SessionEnd / TaskCompleted：把本次代码改动整理上报（复用 mymem_autoreport）
 
-用法（Qoder hooks 里配置）：
-    python mymem_qoder_hook.py [--project 项目名] [--agent qoder]
+用法：
+    Qoder：      python mymem_qoder_hook.py --agent qoder
+    Antigravity：python mymem_qoder_hook.py --event Stop --agent antigravity
+
+两家协议差异：
+- Qoder：事件名在 stdin JSON 的 hook_event_name，目录在 cwd；
+  SessionStart 上下文用 hookSpecificOutput.additionalContext 返回。
+- Antigravity：stdin 不带事件名（用 --event 传入），目录在 workspacePaths；
+  SessionStart 用 injectSteps 注入，Stop 需返回 {"decision": "stop"}。
 
 项目名解析顺序：--project > 环境变量 MYMEM_PROJECT > 当前 git 仓库目录名。
-stdin 会收到 Qoder 传入的事件 JSON（含 hook_event_name / cwd）。
 本脚本永不阻塞（始终退出码 0），上报失败不影响 Agent 流程。
 """
 import argparse
@@ -19,8 +24,19 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import urllib.parse
 import urllib.request
+
+LOG_PATH = os.path.join(tempfile.gettempdir(), "mymem_qoder_hook.log")
+
+
+def log_line(msg: str) -> None:
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -61,7 +77,7 @@ def do_report(project: str, agent: str, cwd: str) -> None:
                    capture_output=True, encoding="utf-8", errors="replace")
 
 
-def do_bootstrap(project: str) -> None:
+def do_bootstrap(project: str, agy: bool) -> None:
     from mymem_hook import TOKEN, URL
     url = "%s/api/v1/bootstrap?project=%s&limit=20" % (
         URL, urllib.parse.quote(project))
@@ -71,42 +87,56 @@ def do_bootstrap(project: str) -> None:
         with urllib.request.urlopen(req, timeout=15) as resp:
             body = json.load(resp)
     except Exception as e:
+        text = "（mymem bootstrap 获取失败：%s）" % e
+    else:
+        lines = ["# mymem 项目必读记忆（%s）" % project,
+                 "以下为该项目的约定与有效决策，务必遵守：", ""]
+        for it in body.get("must_read", []):
+            lines.append("- [%s] %s：%s" % (it.get("category"),
+                                            it.get("title"),
+                                            it.get("content")))
+        if not body.get("must_read"):
+            lines.append("（暂无）")
+        text = "\n".join(lines)
+
+    if agy:
+        print(json.dumps({"injectSteps": [
+            {"systemMessage": {"systemMessage": text}}]}, ensure_ascii=False))
+    else:
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": "（mymem bootstrap 获取失败：%s）" % e,
+            "additionalContext": text,
         }}, ensure_ascii=False))
-        return
-
-    lines = ["# mymem 项目必读记忆（%s）" % project,
-             "以下为该项目的约定与有效决策，务必遵守：", ""]
-    for it in body.get("must_read", []):
-        lines.append("- [%s] %s：%s" % (it.get("category"),
-                                        it.get("title"), it.get("content")))
-    if not body.get("must_read"):
-        lines.append("（暂无）")
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": "\n".join(lines),
-    }}, ensure_ascii=False))
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="mymem Qoder 硬钩子")
+    parser = argparse.ArgumentParser(description="mymem 硬钩子调度器")
     parser.add_argument("--project", default="")
     parser.add_argument("--agent", default="qoder")
+    parser.add_argument("--event", default="",
+                        help="事件名（Antigravity 经命令行传入；Qoder 在 stdin）")
     args = parser.parse_args()
 
     payload = read_stdin()
-    event = payload.get("hook_event_name", "")
+    event = args.event or payload.get("hook_event_name", "")
+    agy = bool(args.event)  # 事件名来自命令行 → Antigravity 协议
     cwd = payload.get("cwd", "")
+    if not cwd and payload.get("workspacePaths"):
+        cwd = payload["workspacePaths"][0]
     project = resolve_project(args.project, cwd)
+    log_line("[%s] event=%s agent=%s project=%s cwd=%s keys=%s" % (
+        __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+        event or "?", args.agent, project or "?", cwd or "?",
+        ",".join(sorted(payload.keys())) or "no-stdin"))
     if not project:
         return 0
 
     if event in BOOTSTRAP_EVENTS:
-        do_bootstrap(project)
+        do_bootstrap(project, agy)
     elif event in REPORT_EVENTS:
         do_report(project, args.agent, cwd)
+        if agy and event == "Stop":
+            print('{"decision": "stop"}')
     return 0
 
 

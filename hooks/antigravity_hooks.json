@@ -1,0 +1,20 @@
+{
+  "//": "mymem × Antigravity 硬钩子配置。放到工作区 .agents/hooks.json 或全局 ~/.gemini/config/hooks.json。确定性触发，不靠模型自觉。注意：--dangerously-skip-permissions 模式下钩子不会触发。",
+  "mymem": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --event SessionStart --agent antigravity",
+        "timeout": 30
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python D:/program/code/mymem/scripts/mymem_qoder_hook.py --event Stop --agent antigravity",
+        "timeout": 60
+      }
+    ]
+  }
+}
