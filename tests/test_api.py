@@ -134,3 +134,21 @@ def test_rules_pinned_first():
                       params={"project": "demo", "rule": "true"}).json()
     assert rows and all("rule" in m["tags"] for m in rows)
     assert any(m["title"] == "禁止直接改生产库" for m in rows)
+
+
+def test_period_digest_and_archive_title():
+    """链路周期总结：period_rows 区间查询 + 归档自定义标题。"""
+    from datetime import date
+    from app import db as _db
+    today = date.today().isoformat()
+    rows = _db.period_rows(_db.get_conn(), "demo", today, today)
+    assert rows
+
+    r = client.post("/api/v1/digest/archive", json={
+        "project": "demo", "date": today,
+        "title": "链路周期总结 %s ~ %s" % (today, today),
+        "summary": "本期完成了规则功能与界面精简。",
+        "covered_ids": [],
+    })
+    assert r.status_code == 200
+    assert r.json()["title"].startswith("链路周期总结")

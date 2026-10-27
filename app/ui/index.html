@@ -151,6 +151,29 @@
     letter-spacing: 1px; text-transform: uppercase;
   }
 
+  /* 链路总结（AI 生成的周期总结） */
+  .digest-wrap { margin-bottom: 30px; }
+  .digest-card {
+    background: var(--card); border-radius: 24px; padding: 24px 28px;
+    margin-top: 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+  }
+  .digest-card .name { font-size: 18px; font-weight: 800; }
+  .digest-card .content {
+    margin: 10px 0 0; white-space: pre-wrap; color: #444; font-size: 14px;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+    overflow: hidden; cursor: pointer;
+  }
+  .digest-card .content.open { -webkit-line-clamp: unset; }
+  .digest-card .meta { font-size: 12px; color: var(--muted); margin-top: 12px; }
+
+  /* 改动流水折叠 */
+  .flow-toggle {
+    border-top: 1px solid var(--line); margin-top: 12px; padding: 11px 0 3px;
+    font-size: 12px; font-weight: 600; color: var(--accent-deep);
+    cursor: pointer; user-select: none;
+  }
+  .mem.flow { display: none; }
+
   h2 {
     font-size: 13px; font-weight: 700; letter-spacing: 2.5px;
     text-transform: uppercase; color: var(--muted);
@@ -364,6 +387,11 @@ cursor_hooks.json · codex_config.toml</pre>
     <div id="rulesList"></div>
   </div>
 
+  <div class="digest-wrap" id="digestBox" style="display:none">
+    <h2>链路总结</h2>
+    <div id="digestList"></div>
+  </div>
+
   <div class="stats" id="stats"></div>
 
   <div class="group-head">
@@ -375,7 +403,13 @@ cursor_hooks.json · codex_config.toml</pre>
   </div>
   <div class="agent-grid" id="agents"></div>
 
-  <h2>时间线</h2>
+  <div class="group-head">
+    <h2>时间线</h2>
+    <div class="seg" id="flowSeg">
+      <button data-flow="0" class="active">隐藏流水</button>
+      <button data-flow="1">含改动流水</button>
+    </div>
+  </div>
   <div id="timeline"></div>
 </main>
 
@@ -421,6 +455,17 @@ $("seg").addEventListener("click", (e) => {
     groupMode === "project" ? "今日项目进展" : "各 Agent 今日工作";
   $("seg").querySelectorAll("button").forEach((el) =>
     el.classList.toggle("active", el.dataset.mode === groupMode));
+  render(lastItems);
+});
+
+// 时间线流水开关（默认隐藏 context 流水）
+let showFlow = false;
+$("flowSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  showFlow = btn.dataset.flow === "1";
+  $("flowSeg").querySelectorAll("button").forEach((el) =>
+    el.classList.toggle("active", el.dataset.flow === btn.dataset.flow));
   render(lastItems);
 });
 
@@ -472,6 +517,14 @@ async function load() {
     .then((r) => (r.ok ? r.json() : []))
     .then(renderRules)
     .catch(() => renderRules([]));
+  // 链路总结（AI 生成的周期总结）
+  const dp = new URLSearchParams({
+    category: "archive", limit: 3, include_archived: "true" });
+  if (project) dp.set("project", project);
+  fetch("/api/v1/memories?" + dp, { headers: headers() })
+    .then((r) => (r.ok ? r.json() : []))
+    .then(renderDigest)
+    .catch(() => renderDigest([]));
 }
 
 function renderRules(rules) {
@@ -487,6 +540,21 @@ function renderRules(rules) {
         <span class="content">${esc(m.content)}</span>
         <span class="proj">${esc(m.project)}</span>
       </div>`).join("");
+}
+
+function renderDigest(list) {
+  const box = $("digestBox");
+  if (!list.length) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  $("digestList").innerHTML = list.map((m) => `
+    <div class="digest-card">
+      <div class="name">${esc(m.title)}</div>
+      <div class="content">${esc(m.content)}</div>
+      <div class="meta">${fmtTime(m.updated_at || m.created_at)} · ${esc(m.project)}
+        ${m.archived ? " · 已归档" : ""}</div>
+    </div>`).join("");
+  document.querySelectorAll(".digest-card .content").forEach((el) =>
+    el.addEventListener("click", () => el.classList.toggle("open")));
 }
 
 function render(all) {
@@ -538,16 +606,8 @@ function render(all) {
       head = esc(key.slice(0, i));
       sub = `<div class="agent-sys">SYSTEM · ${esc(key.slice(i + 1) || "未标识")}</div>`;
     }
-    return `<div class="agent-card">
-      <div class="agent-head">
-        <div>
-          <div class="agent-name">${head}</div>
-          ${sub}
-        </div>
-        <div class="count-badge">${list.length}</div>
-      </div>
-      ${mems.map((m) => `
-        <div class="mem">
+    const memHtml = (m, cls) => `
+        <div class="mem${cls}">
           <div class="row">
             <span class="pill p-${m.category}">${CAT_CN[m.category]}</span>
             <span class="title">${esc(m.title)}</span>
@@ -560,16 +620,39 @@ function render(all) {
               : `<span>${fmtTime(m.created_at)}</span>
                  <span>${esc(m.project)}</span>`}
           </div>
-        </div>`).join("")}
+        </div>`;
+    // 改动流水（context）默认折叠，高价值条目直接展示
+    const flows = mems.filter((m) => m.category === "context");
+    const highs = mems.filter((m) => m.category !== "context");
+    return `<div class="agent-card">
+      <div class="agent-head">
+        <div>
+          <div class="agent-name">${head}</div>
+          ${sub}
+        </div>
+        <div class="count-badge">${list.length}</div>
+      </div>
+      ${highs.map((m) => memHtml(m, "")).join("")}
+      ${flows.length ? `<div class="flow-toggle" data-n="${flows.length}">▸ ${flows.length} 条改动流水（点击展开）</div>` : ""}
+      ${flows.map((m) => memHtml(m, " flow")).join("")}
     </div>`;
   }).join("");
   $("agents").innerHTML = cards || `<div class="empty">当天没有记录</div>`;
-  // 时间线卡片（点击展开全文）
-  if (!items.length) {
+  document.querySelectorAll(".flow-toggle").forEach((el) =>
+    el.addEventListener("click", () => {
+      const flows = el.parentElement.querySelectorAll(".mem.flow");
+      const open = flows.length && flows[0].style.display === "none";
+      flows.forEach((f) => (f.style.display = open ? "block" : "none"));
+      el.textContent = (open ? "▾ " : "▸ ") + el.dataset.n +
+        " 条改动流水（点击" + (open ? "收起" : "展开") + "）";
+    }));
+  // 时间线卡片（点击展开全文；默认隐藏 context 流水）
+  const tlItems = items.filter((m) => showFlow || m.category !== "context");
+  if (!tlItems.length) {
     $("timeline").innerHTML = `<div class="empty">没有匹配的记忆</div>`;
     return;
   }
-  $("timeline").innerHTML = items
+  $("timeline").innerHTML = tlItems
     .slice()
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .map((m) => `

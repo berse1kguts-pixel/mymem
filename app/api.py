@@ -145,7 +145,7 @@ def archive_digest(req: models.DigestRequest):
     _guard(req.project, "write", req.agent, detail="archive %s" % req.date)
     data = db.insert_memory(conn, req.project, {
         "category": "archive",
-        "title": "每日归档 %s" % req.date,
+        "title": req.title or "每日归档 %s" % req.date,
         "content": req.summary,
         "tags": ["archive", req.date],
     }, req.agent)

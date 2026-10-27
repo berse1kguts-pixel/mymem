@@ -141,13 +141,38 @@ def memory_daily_digest(project: str, date: str) -> dict:
 
 
 @mcp.tool()
+def memory_period_digest(project: str, start_date: str, end_date: str) -> dict:
+    """链路周期总结第一步：拉取一段周期（YYYY-MM-DD ~ YYYY-MM-DD）的记忆。
+
+    整理成链路周期总结后调 memory_archive 提交（title 可自定义，
+    如「链路周期总结 2026-10-24 ~ 2026-10-27」）。
+    """
+    security.check_project(project)
+    conn = db.get_conn()
+    rows = db.period_rows(conn, project, start_date, end_date)
+    security.log("read", project,
+                 detail="period_digest %s~%s" % (start_date, end_date))
+    groups: dict[str, list] = {}
+    for r in rows:
+        day = (r["created_at"] or "")[:10]
+        groups.setdefault(day, []).append(_out(r))
+    return {"project": project, "start_date": start_date, "end_date": end_date,
+            "count": len(rows), "days": groups,
+            "unarchived_ids": [r["id"] for r in rows]}
+
+
+@mcp.tool()
 def memory_archive(project: str, date: str, summary: str,
-                   covered_ids: list[int]) -> dict:
-    """每日归档第二步：提交整体总结，覆盖的条目自动标记为已归档。"""
+                   covered_ids: list[int], title: str = "") -> dict:
+    """归档第二步：提交总结，覆盖的条目自动标记为已归档。
+
+    title 可选：每日归档可省略；链路周期总结建议传
+    「链路周期总结 YYYY-MM-DD ~ YYYY-MM-DD」便于页面展示。
+    """
     security.check_project(project)
     conn = db.get_conn()
     row = db.insert_memory(conn, project, {
-        "category": "archive", "title": "每日归档 %s" % date,
+        "category": "archive", "title": title or "每日归档 %s" % date,
         "content": summary, "tags": ["archive", date],
     }, "mcp")
     security.log("write", project, "mcp", memory_id=row["id"],

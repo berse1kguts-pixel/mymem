@@ -261,6 +261,20 @@ def mark_archived(conn: sqlite3.Connection, ids: list[int]) -> int:
     return cur.rowcount
 
 
+def period_rows(conn: sqlite3.Connection, project: str,
+                start: str, end: str,
+                include_archived: bool = False) -> list[dict]:
+    """某段周期（start~end，YYYY-MM-DD）内的记忆，按时间正序。"""
+    sql = ("SELECT * FROM memories WHERE project=? AND status='active' "
+           "AND date(created_at,'localtime') BETWEEN ? AND ?")
+    params: list = [project, start, end]
+    if not include_archived:
+        sql += " AND archived=0"
+    sql += " ORDER BY created_at"
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def bootstrap_rows(conn: sqlite3.Connection, project: str,
                    limit: int = 20) -> list[dict]:
     """会话开始时的必读记忆：项目约定与有效决策。
