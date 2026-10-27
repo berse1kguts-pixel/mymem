@@ -151,7 +151,8 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
         where.append("m.category = ?")
         params.append(category)
     if date:
-        where.append("date(m.created_at) = ?")
+        # localtime：按服务器本地时区（TZ）归日，避免凌晨记录归到前一天
+        where.append("date(m.created_at, 'localtime') = ?")
         params.append(date)
     if not include_archived:
         where.append("m.archived = 0")
@@ -207,11 +208,11 @@ def delete_memory(conn: sqlite3.Connection, memory_id: int) -> bool:
 
 def daily_rows(conn: sqlite3.Connection, project: str, date: str,
                include_archived: bool = False) -> list[dict]:
-    """取某一天（UTC 日期）的记忆，供 AI 做每日归档。
+    """取某一天（服务器本地日期）的记忆，供 AI 做每日归档。
 
     archive 类记忆本身是归档产物，不参与待归档列表。
     """
-    where = ["project=?", "date(created_at)=?", "status='active'",
+    where = ["project=?", "date(created_at, 'localtime')=?", "status='active'",
              "category != 'archive'"]
     params: list = [project, date]
     if not include_archived:

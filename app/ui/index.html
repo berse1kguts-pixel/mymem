@@ -127,7 +127,11 @@ const CATEGORIES = ["decision", "lesson", "convention", "context", "archive"];
 const CAT_CN = { decision: "决策", lesson: "教训", convention: "约定",
                  context: "上下文", archive: "归档" };
 
-$("date").value = new Date().toISOString().slice(0, 10);
+{
+  const now = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  $("date").value = `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
+}
 $("token").value = localStorage.getItem("mymem_token") || "";
 
 function headers() {
@@ -137,7 +141,10 @@ function headers() {
 }
 
 function fmtTime(iso) {
-  return iso ? iso.replace("T", " ").slice(0, 16) : "";
+  if (!iso) return "";
+  const d = new Date(iso);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function esc(s) {
