@@ -65,6 +65,11 @@ def resolve_project(arg_project: str, cwd: str) -> str:
             return os.path.basename(out.stdout.strip())
     except Exception:
         pass
+    # 非 git 仓库也用目录名兜底，避免静默跳过
+    if cwd:
+        name = os.path.basename(os.path.normpath(cwd))
+        if name:
+            return name
     return ""
 
 
