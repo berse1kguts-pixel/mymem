@@ -20,7 +20,7 @@ digest.json 格式：
 }
 
 环境变量：
-    MYMEM_URL    服务地址，默认 http://1.92.76.106:8700
+    MYMEM_URL    服务地址，默认 http://1.92.76.106
     MYMEM_TOKEN  访问令牌（服务端设置了 MYMEM_TOKEN 时必填）
 """
 import json
@@ -29,7 +29,7 @@ import platform
 import sys
 import urllib.request
 
-URL = os.environ.get("MYMEM_URL", "http://1.92.76.106:8700").rstrip("/")
+URL = os.environ.get("MYMEM_URL", "http://1.92.76.106").rstrip("/")
 TOKEN = os.environ.get("MYMEM_TOKEN", "")
 
 
@@ -43,7 +43,7 @@ def main() -> int:
         print(__doc__)
         return 1
     arg = sys.argv[1]
-    raw = sys.stdin.read() if arg == "-" else open(arg, encoding="utf-8").read()
+    raw = sys.stdin.read() if arg == "-" else open(arg, encoding="utf-8-sig").read()
     payload = json.loads(raw)
     payload.setdefault("agent", os.environ.get("MYMEM_AGENT", "unknown"))
     payload.setdefault("system", system_identity())
