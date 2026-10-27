@@ -6,22 +6,23 @@
 <title>mymem · AI 记忆中心</title>
 <style>
   :root {
-    --bg: #f6f1e9; --card: #ffffff; --ink: #1c1b19; --muted: #8a8378;
-    --line: #e8e1d5; --accent: #1f6f6b; --accent-deep: #17443f;
-    --decision: #3b3fa8; --lesson: #d98a2b; --convention: #2e8b57;
-    --context: #46586a; --archive: #9a8c7a;
+    --bg: #f5f5f5; --card: #ffffff; --ink: #191919; --muted: #999999;
+    --line: #ebebeb; --accent: #ff6900; --accent-deep: #e55d00;
+    --decision: #4a6cf7; --lesson: #ff8c1a; --convention: #22b573;
+    --context: #6b7a90; --archive: #b0a08f;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font: 15px/1.6 "MiSans", "HarmonyOS Sans SC", "PingFang SC",
+      "Microsoft YaHei", system-ui, sans-serif;
     display: flex; min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
   }
 
   /* ===== 左侧栏 ===== */
   .sidebar {
-    width: 300px; flex-shrink: 0; padding: 36px 28px;
-    border-right: 1px solid var(--line);
+    width: 300px; flex-shrink: 0; padding: 40px 32px;
     position: sticky; top: 0; height: 100vh; overflow-y: auto;
   }
   .brand { font-size: 34px; font-weight: 800; letter-spacing: -.5px; }
@@ -35,11 +36,15 @@
     margin: 22px 0 10px;
   }
   .sidebar input {
-    width: 100%; font: inherit; padding: 11px 16px;
-    border: 1.5px solid var(--line); border-radius: 999px;
+    width: 100%; font: inherit; padding: 12px 16px;
+    border: 1px solid transparent; border-radius: 14px;
     background: #fff; color: var(--ink); outline: none;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+    transition: box-shadow .2s;
   }
-  .sidebar input:focus { border-color: var(--accent); }
+  .sidebar input:focus {
+    box-shadow: 0 0 0 2px rgba(255, 105, 0, .25);
+  }
   .search-wrap { position: relative; }
   .search-wrap input { padding-left: 40px; }
   .search-wrap::before {
@@ -55,13 +60,16 @@
     user-select: none;
   }
   .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
-  .chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip.active .dot { background: #fff !important; }
   #reload {
-    width: 100%; margin-top: 28px; padding: 13px;
-    border: 0; border-radius: 999px; background: var(--ink); color: #fff;
+    width: 100%; margin-top: 28px; padding: 14px;
+    border: 0; border-radius: 14px; background: var(--accent); color: #fff;
     font: inherit; font-weight: 700; letter-spacing: 2px; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(255, 105, 0, .25);
+    transition: background .2s;
   }
-  #reload:hover { background: var(--accent); }
+  #reload:hover { background: var(--accent-deep); }
 
   /* ===== 主区 ===== */
   main { flex: 1; padding: 36px 44px 80px; max-width: 1100px; }
@@ -75,6 +83,43 @@
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
     text-transform: uppercase; color: var(--muted);
   }
+  /* 对接指引卡片 */
+  .guide {
+    background: var(--card); border-radius: 24px; padding: 26px 28px;
+    margin-bottom: 30px; box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+  }
+  .guide-title { font-size: 17px; font-weight: 700; }
+  .guide-title::before {
+    content: ""; display: inline-block; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--accent); margin-right: 10px;
+    vertical-align: 2px;
+  }
+  .guide-sub { color: var(--muted); font-size: 13px; margin: 2px 0 18px; }
+  .guide-steps {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 16px 30px;
+  }
+  .step { display: flex; gap: 12px; align-items: flex-start; }
+  .step-no {
+    flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(255, 105, 0, .12); color: var(--accent);
+    font-size: 12px; font-weight: 700; margin-top: 2px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step-name { font-size: 13px; font-weight: 600; }
+  .step pre {
+    margin: 6px 0 0; padding: 9px 12px; background: #f7f7f7;
+    border-radius: 10px; font: 12px/1.5 Consolas, monospace;
+    color: #555; overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+  }
+  .guide-note {
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 12px;
+  }
+  .guide-note code {
+    background: #f7f7f7; border-radius: 6px; padding: 1px 7px; font-size: 11px;
+  }
+
   h2 {
     font-size: 13px; font-weight: 700; letter-spacing: 2.5px;
     text-transform: uppercase; color: var(--muted);
@@ -87,8 +132,12 @@
     gap: 22px;
   }
   .agent-card {
-    background: var(--card); border-radius: 18px; padding: 24px;
-    box-shadow: 0 1px 3px rgba(28, 27, 25, .05);
+    background: var(--card); border-radius: 24px; padding: 26px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+    transition: box-shadow .2s, transform .2s;
+  }
+  .agent-card:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .06); transform: translateY(-2px);
   }
   .agent-head { display: flex; align-items: flex-start; gap: 12px; }
   .agent-name {
@@ -99,21 +148,21 @@
   .count-badge {
     margin-left: auto; flex-shrink: 0;
     width: 40px; height: 40px; border-radius: 50%;
-    background: var(--accent-deep); color: #fff;
+    background: var(--accent); color: #fff;
     display: flex; align-items: center; justify-content: center;
     font-size: 15px; font-weight: 700;
   }
   .mem { border-top: 1px solid var(--line); padding: 13px 0 3px; margin-top: 12px; }
   .mem .row { display: flex; align-items: baseline; gap: 10px; }
   .pill {
-    flex-shrink: 0; padding: 2px 11px; border-radius: 999px;
-    font-size: 11px; font-weight: 700; color: #fff; letter-spacing: .5px;
+    flex-shrink: 0; padding: 3px 11px; border-radius: 8px;
+    font-size: 11px; font-weight: 600; letter-spacing: .5px;
   }
-  .p-decision { background: var(--decision); }
-  .p-lesson { background: var(--lesson); }
-  .p-convention { background: var(--convention); }
-  .p-context { background: var(--context); }
-  .p-archive { background: var(--archive); }
+  .p-decision { background: rgba(74, 108, 247, .1); color: #3556d4; }
+  .p-lesson { background: rgba(255, 140, 26, .12); color: #d9700a; }
+  .p-convention { background: rgba(34, 181, 115, .12); color: #189e63; }
+  .p-context { background: rgba(107, 122, 144, .12); color: #55647a; }
+  .p-archive { background: rgba(176, 160, 143, .15); color: #8d7d6c; }
   .mem .title { font-weight: 600; font-size: 14px; }
   .mem .content {
     color: var(--muted); font-size: 13px; white-space: pre-wrap;
@@ -124,11 +173,14 @@
 
   /* 时间线卡片 */
   .tl {
-    background: var(--card); border-radius: 14px; padding: 20px 26px;
-    margin-bottom: 16px; display: flex; gap: 20px;
-    border-left: 8px solid var(--line);
-    box-shadow: 0 1px 3px rgba(28, 27, 25, .05);
-    cursor: pointer;
+    background: var(--card); border-radius: 16px; padding: 20px 26px;
+    margin-bottom: 14px; display: flex; gap: 20px;
+    border-left: 4px solid var(--line);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+    cursor: pointer; transition: box-shadow .2s, transform .2s;
+  }
+  .tl:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .06); transform: translateY(-2px);
   }
   .tl.tl-decision { border-left-color: var(--decision); }
   .tl.tl-lesson { border-left-color: var(--lesson); }
@@ -198,6 +250,50 @@
 
 <main>
   <div id="error"></div>
+
+  <div class="guide">
+    <div class="guide-title">Agent 对接指引</div>
+    <div class="guide-sub">让任意 code agent 把工作记忆接入 mymem · 服务地址 http://1.92.76.106</div>
+    <div class="guide-steps">
+      <div class="step">
+        <span class="step-no">1</span>
+        <div>
+          <div class="step-name">代码改动自动上报</div>
+          <pre>python scripts/mymem_autoreport.py --project &lt;项目名&gt; --agent &lt;agent名&gt;</pre>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-no">2</span>
+        <div>
+          <div class="step-name">对话结论 / 手动上报</div>
+          <pre>python scripts/mymem_hook.py digest.json</pre>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-no">3</span>
+        <div>
+          <div class="step-name">会话开始读取项目必读记忆</div>
+          <pre>POST /api/v1/bootstrap?project=&lt;项目名&gt;
+（或 MCP 工具 memory_bootstrap）</pre>
+        </div>
+      </div>
+      <div class="step">
+        <span class="step-no">4</span>
+        <div>
+          <div class="step-name">各 Agent 配置模板</div>
+          <pre>hooks/ 目录
+trae_rules.md · claude_code_settings.json
+cursor_hooks.json · codex_config.toml</pre>
+        </div>
+      </div>
+    </div>
+    <div class="guide-note">
+      上报内容按 <code>--project</code> 隔离，个人 / 公司项目互不可见；
+      需要访问令牌时请求头带 <code>Authorization: Bearer &lt;token&gt;</code>；
+      也可直接调 REST 接口 <code>POST /api/v1/ingest</code> 提交记忆。
+    </div>
+  </div>
+
   <div class="stats" id="stats"></div>
 
   <h2>各 Agent 今日工作</h2>
