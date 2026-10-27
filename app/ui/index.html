@@ -170,6 +170,37 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
   }
+  .mem .meta {
+    font-size: 11px; color: var(--muted); margin: 7px 0 0;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+
+  /* 分组切换 + agent 徽标 */
+  .group-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .seg {
+    display: flex; gap: 6px; background: #fff; border-radius: 999px;
+    padding: 5px; box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+  }
+  .seg button {
+    border: 0; background: transparent; border-radius: 999px;
+    padding: 7px 18px; font: inherit; font-size: 13px; font-weight: 600;
+    color: var(--muted); cursor: pointer;
+  }
+  .seg button.active { background: var(--accent); color: #fff; }
+  .agent-tag {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: .5px;
+    text-transform: uppercase;
+    background: rgba(255, 105, 0, .1); color: var(--accent-deep);
+  }
+  .agent-tag.alt { background: rgba(74, 108, 247, .1); color: #3556d4; }
+  .agent-tag.alt2 { background: rgba(34, 181, 115, .12); color: #189e63; }
+  .agent-tags {
+    margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;
+  }
 
   /* 时间线卡片 */
   .tl {
@@ -296,7 +327,13 @@ cursor_hooks.json · codex_config.toml</pre>
 
   <div class="stats" id="stats"></div>
 
-  <h2>各 Agent 今日工作</h2>
+  <div class="group-head">
+    <h2 id="groupTitle">今日项目进展</h2>
+    <div class="seg" id="seg">
+      <button data-mode="project" class="active">按项目</button>
+      <button data-mode="agent">按 Agent</button>
+    </div>
+  </div>
   <div class="agent-grid" id="agents"></div>
 
   <h2>时间线</h2>
@@ -334,6 +371,19 @@ let activeCat = null;
     render(lastItems);
   });
 }
+
+// 分组视图切换（按项目 / 按 Agent）
+let groupMode = "project";
+$("seg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  groupMode = btn.dataset.mode;
+  $("groupTitle").textContent =
+    groupMode === "project" ? "今日项目进展" : "各 Agent 今日工作";
+  $("seg").querySelectorAll("button").forEach((el) =>
+    el.classList.toggle("active", el.dataset.mode === groupMode));
+  render(lastItems);
+});
 
 function headers() {
   const t = $("token").value.trim();
@@ -383,28 +433,55 @@ function render(all) {
 
   // 大数字统计
   const byCat = {};
-  const byAgent = {};
+  const byProject = {};
   for (const it of items) {
     byCat[it.category] = (byCat[it.category] || 0) + 1;
-    const key = it.source_agent + " " + it.source_system;
-    (byAgent[key] = byAgent[key] || []).push(it);
+    byProject[it.project] = (byProject[it.project] || 0) + 1;
   }
   const stat = (n, label) =>
     `<div class="stat"><div class="num">${n}</div><div class="label">${label}</div></div>`;
   $("stats").innerHTML =
     stat(items.length, "记忆总数") +
-    stat(Object.keys(byAgent).length, "参与 Agent") +
+    stat(Object.keys(byProject).length, "涉及项目") +
+    stat(new Set(items.map((it) => it.source_agent)).size, "参与 Agent") +
     CATEGORIES.filter((c) => byCat[c]).map((c) => stat(byCat[c], CAT_CN[c])).join("");
-  // agent 卡片
-  const agentHtml = Object.entries(byAgent).map(([key, list]) => {
-    const i = key.indexOf(" ");
-    const agent = key.slice(0, i), system = key.slice(i + 1);
+
+  // agent 徽标配色（同一 agent 颜色固定）
+  const agentIdx = {};
+  const tagClass = (a) => {
+    if (!(a in agentIdx)) agentIdx[a] = Object.keys(agentIdx).length;
+    return "agent-tag" + ["", " alt", " alt2"][agentIdx[a] % 3];
+  };
+
+  // 分组卡片（按项目 / 按 Agent）
+  const groups = {};
+  if (groupMode === "project") {
+    for (const it of items) (groups[it.project] = groups[it.project] || []).push(it);
+  } else {
+    for (const it of items) {
+      const key = it.source_agent + " " + (it.source_system || "");
+      (groups[key] = groups[key] || []).push(it);
+    }
+  }
+  const cards = Object.entries(groups).map(([key, list]) => {
     const mems = list.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
+    let head, sub;
+    if (groupMode === "project") {
+      head = esc(key);
+      const cnt = {};
+      for (const m of list) cnt[m.source_agent] = (cnt[m.source_agent] || 0) + 1;
+      sub = `<div class="agent-tags">` + Object.entries(cnt).map(([a, n]) =>
+        `<span class="${tagClass(a)}">${esc(a)} · ${n}条</span>`).join("") + `</div>`;
+    } else {
+      const i = key.indexOf(" ");
+      head = esc(key.slice(0, i));
+      sub = `<div class="agent-sys">SYSTEM · ${esc(key.slice(i + 1) || "未标识")}</div>`;
+    }
     return `<div class="agent-card">
       <div class="agent-head">
         <div>
-          <div class="agent-name">${esc(agent)}</div>
-          <div class="agent-sys">SYSTEM · ${esc(system || "未标识")}</div>
+          <div class="agent-name">${head}</div>
+          ${sub}
         </div>
         <div class="count-badge">${list.length}</div>
       </div>
@@ -415,10 +492,17 @@ function render(all) {
             <span class="title">${esc(m.title)}</span>
           </div>
           <div class="content">${esc(m.content)}</div>
+          <div class="meta">
+            ${groupMode === "project"
+              ? `<span class="${tagClass(m.source_agent)}">${esc(m.source_agent)}</span>
+                 <span>${fmtTime(m.created_at)}</span>`
+              : `<span>${fmtTime(m.created_at)}</span>
+                 <span>${esc(m.project)}</span>`}
+          </div>
         </div>`).join("")}
     </div>`;
   }).join("");
-  $("agents").innerHTML = agentHtml || `<div class="empty">当天没有记录</div>`;
+  $("agents").innerHTML = cards || `<div class="empty">当天没有记录</div>`;
   // 时间线卡片（点击展开全文）
   if (!items.length) {
     $("timeline").innerHTML = `<div class="empty">没有匹配的记忆</div>`;
