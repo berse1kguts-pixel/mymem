@@ -129,12 +129,17 @@ def main() -> int:
         event or "?", args.agent, project or "?", cwd or "?",
         ",".join(sorted(payload.keys())) or "no-stdin"))
     if not project:
+        if agy and event == "Stop":
+            print('{"decision": "stop"}')
         return 0
 
     if event in BOOTSTRAP_EVENTS:
         do_bootstrap(project, agy)
     elif event in REPORT_EVENTS:
-        do_report(project, args.agent, cwd)
+        try:
+            do_report(project, args.agent, cwd)
+        except Exception:
+            pass
         if agy and event == "Stop":
             print('{"decision": "stop"}')
     return 0

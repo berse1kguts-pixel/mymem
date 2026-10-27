@@ -2,7 +2,7 @@
   "//": "mymem × Antigravity MCP 配置。并入 ~/.gemini/config/mcp_config.json（Antigravity / Gemini 系共享），或在 IDE 的 Settings > Customizations > MCP 里添加。项目名会由 hooks 自动按 git 仓库目录上报；MCP 手动调用工具时 project 参数按需传。",
   "mcpServers": {
     "mymem": {
-      "httpUrl": "http://1.92.76.106/mcp",
+      "serverUrl": "http://1.92.76.106/mcp",
       "description": "mymem · 跨 agent 共享记忆中枢（bootstrap / search / add / ingest / 归档）",
       "headers": {}
     }
