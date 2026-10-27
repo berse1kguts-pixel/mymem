@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "python D:/program/code/mymem/scripts/mymem_autoreport.py --project mymem --agent cursor"
+      }
+    ]
+  }
+}

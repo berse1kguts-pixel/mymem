@@ -1,0 +1,3 @@
+# Codex CLI：~/.codex/config.toml 追加（注意替换 --project 的项目名）
+# 每个回合结束自动上报本次修改到 mymem，按项目名隔离记忆
+notify = ["python", "D:/program/code/mymem/scripts/mymem_autoreport.py", "--project", "mymem", "--agent", "codex"]

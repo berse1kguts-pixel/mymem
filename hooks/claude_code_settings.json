@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python D:/program/code/mymem/scripts/mymem_autoreport.py --project mymem --agent claude-code"
+          }
+        ]
+      }
+    ]
+  }
+}
