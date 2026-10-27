@@ -31,16 +31,18 @@ def _out(row: dict) -> dict:
 @mcp.tool()
 def memory_search(project: str = "", query: str = "", category: str = "",
                   date: str = "", include_archived: bool = False,
+                  rule_only: bool = False,
                   limit: int = 20) -> list[dict]:
     """检索记忆（全文检索，按相关度排序）。query 为空则按 project/category/date 列出最近记忆。
 
-    date 格式 YYYY-MM-DD。
+    date 格式 YYYY-MM-DD。rule_only=true 只返回当前生效的规则（tags 含 rule）。
     """
     security.check_project(project)
     conn = db.get_conn()
     rows = db.search_memories(conn, project or None, category or None,
                               query or None, date or None,
-                              include_archived, False, limit)
+                              include_archived, False, limit,
+                              rule_only=rule_only)
     security.log("read", project, detail="search query=%s" % (query or ""))
     return [_out(r) for r in rows]
 
@@ -50,6 +52,8 @@ def memory_bootstrap(project: str, limit: int = 20) -> dict:
     """会话开始时调用：返回项目的必读记忆（约定 + 有效决策）。
 
     开局先读它，获得项目背景与历史结论，避免重复踩坑。
+    规则（tags 含 "rule"）排最前，必须优先遵守；上报硬约束时给约定/决策
+    加 tag "rule"，所有 agent 下次会话开始就会自动收到。
     """
     security.check_project(project)
     conn = db.get_conn()

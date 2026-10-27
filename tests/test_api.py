@@ -115,3 +115,22 @@ def test_mcp_endpoint_reachable():
                        "clientInfo": {"name": "test", "version": "0"}},
         }, headers={"Accept": "application/json, text/event-stream"})
     assert r.status_code == 200
+
+
+def test_rules_pinned_first():
+    """规则（tags 含 rule）：bootstrap 置顶 + rule 过滤查询。"""
+    client.post("/api/v1/ingest", json={
+        "project": "demo", "agent": "trae",
+        "memories": [{"category": "convention", "title": "禁止直接改生产库",
+                      "content": "必须走 SQL 审核流程", "tags": ["rule"]}],
+    })
+    b = client.get("/api/v1/bootstrap", params={"project": "demo"}).json()
+    assert b["must_read"], "bootstrap 应返回必读记忆"
+    first = b["must_read"][0]
+    assert first["title"] == "禁止直接改生产库"   # 规则排最前
+    assert "rule" in first["tags"]
+
+    rows = client.get("/api/v1/memories",
+                      params={"project": "demo", "rule": "true"}).json()
+    assert rows and all("rule" in m["tags"] for m in rows)
+    assert any(m["title"] == "禁止直接改生产库" for m in rows)

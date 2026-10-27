@@ -154,7 +154,8 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
                     date: str | None = None,
                     include_archived: bool = False,
                     include_superseded: bool = False,
-                    limit: int = 50, offset: int = 0) -> list[dict]:
+                    limit: int = 50, offset: int = 0,
+                    rule_only: bool = False) -> list[dict]:
     where = []
     params: list = []
     if project:
@@ -163,6 +164,9 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
     if category:
         where.append("m.category = ?")
         params.append(category)
+    if rule_only:
+        # 规则 = tags 含 "rule" 的记忆（约定/决策的置顶形态）
+        where.append("m.tags LIKE '%\"rule\"%'")
     if date:
         # localtime：按服务器本地时区（TZ）归日，避免凌晨记录归到前一天
         where.append("date(m.created_at, 'localtime') = ?")
@@ -259,11 +263,15 @@ def mark_archived(conn: sqlite3.Connection, ids: list[int]) -> int:
 
 def bootstrap_rows(conn: sqlite3.Connection, project: str,
                    limit: int = 20) -> list[dict]:
-    """会话开始时的必读记忆：项目约定与有效决策，按最近更新排序。"""
+    """会话开始时的必读记忆：项目约定与有效决策。
+
+    规则（tags 含 "rule"）置顶排最前，其余按最近更新排序。
+    """
     rows = conn.execute(
         "SELECT * FROM memories WHERE project=? AND status='active' "
         "AND archived=0 AND category IN ('convention','decision') "
-        "ORDER BY updated_at DESC LIMIT ?",
+        "ORDER BY CASE WHEN tags LIKE '%\"rule\"%' THEN 0 ELSE 1 END, "
+        "updated_at DESC LIMIT ?",
         (project, limit),
     ).fetchall()
     return [_row_to_dict(r) for r in rows]

@@ -120,6 +120,37 @@
     background: #f7f7f7; border-radius: 6px; padding: 1px 7px; font-size: 11px;
   }
 
+  /* 生效规则栏 */
+  .rules {
+    background: rgba(255, 105, 0, .05);
+    border: 1.5px solid rgba(255, 105, 0, .25);
+    border-radius: 24px; padding: 22px 28px; margin-bottom: 30px;
+  }
+  .rules-title {
+    font-size: 13px; font-weight: 800; letter-spacing: 2px;
+    text-transform: uppercase; color: var(--accent-deep);
+  }
+  .rules-title::before { content: "◆"; font-size: 11px; margin-right: 8px; }
+  .rules-note {
+    color: var(--muted); font-size: 12px; margin: 3px 0 14px;
+  }
+  .rule-item {
+    background: #fff; border-radius: 14px; padding: 13px 18px;
+    margin-top: 10px; display: flex; gap: 12px;
+    align-items: baseline; flex-wrap: wrap;
+  }
+  .rule-item .rule-flag {
+    flex-shrink: 0; padding: 2px 10px; border-radius: 8px;
+    background: var(--accent); color: #fff;
+    font-size: 11px; font-weight: 700;
+  }
+  .rule-item .title { font-weight: 700; }
+  .rule-item .content { color: var(--muted); font-size: 13px; }
+  .rule-item .proj {
+    margin-left: auto; font-size: 11px; color: var(--muted);
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+
   h2 {
     font-size: 13px; font-weight: 700; letter-spacing: 2.5px;
     text-transform: uppercase; color: var(--muted);
@@ -325,6 +356,14 @@ cursor_hooks.json · codex_config.toml</pre>
     </div>
   </div>
 
+  <div class="rules" id="rulesBox" style="display:none">
+    <div class="rules-title">生效规则</div>
+    <div class="rules-note">
+      agent 上报的硬约束（tags 含 rule），所有 agent 会话开始自动注入并遵守
+    </div>
+    <div id="rulesList"></div>
+  </div>
+
   <div class="stats" id="stats"></div>
 
   <div class="group-head">
@@ -426,6 +465,28 @@ async function load() {
     $("error").textContent = "加载失败：" + e.message;
     $("error").style.display = "block";
   }
+  // 生效规则（跨日期，不受日期筛选影响）
+  const rp = new URLSearchParams({ rule: "true", limit: 100 });
+  if (project) rp.set("project", project);
+  fetch("/api/v1/memories?" + rp, { headers: headers() })
+    .then((r) => (r.ok ? r.json() : []))
+    .then(renderRules)
+    .catch(() => renderRules([]));
+}
+
+function renderRules(rules) {
+  const box = $("rulesBox");
+  if (!rules.length) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  $("rulesList").innerHTML = rules
+    .slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .map((m) => `
+      <div class="rule-item">
+        <span class="rule-flag">规则</span>
+        <span class="title">${esc(m.title)}</span>
+        <span class="content">${esc(m.content)}</span>
+        <span class="proj">${esc(m.project)}</span>
+      </div>`).join("");
 }
 
 function render(all) {

@@ -69,13 +69,14 @@ def list_memories(project: str | None = None, category: str | None = None,
                   date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
                   include_archived: bool = False,
                   include_superseded: bool = False,
+                  rule: bool = False,
                   limit: int = Query(50, le=500), offset: int = 0):
     conn = db.get_conn()
     if project:
         _guard(project, "read", detail="search q=%s" % (q or ""))
     rows = db.search_memories(conn, project, category, q, date,
                               include_archived, include_superseded,
-                              limit, offset)
+                              limit, offset, rule_only=rule)
     return [_out(r) for r in rows]
 
 
