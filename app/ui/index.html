@@ -173,6 +173,7 @@
     cursor: pointer; user-select: none;
   }
   .mem.flow { display: none; }
+  .mem.flow.show { display: block; }
 
   h2 {
     font-size: 13px; font-weight: 700; letter-spacing: 2.5px;
@@ -290,6 +291,46 @@
     border-radius: 999px; padding: 0 8px;
   }
 
+  /* ===== 项目看板 ===== */
+  #board { display: none; }
+  .board-back {
+    border: 0; background: #fff; border-radius: 999px; padding: 9px 20px;
+    font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03); margin-bottom: 24px;
+  }
+  .board-back:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, .08); }
+  .board-head { display: flex; align-items: flex-start; gap: 16px; }
+  .board-name { font-size: 32px; font-weight: 800; letter-spacing: -.5px; }
+  .board-meta {
+    margin-left: auto; text-align: right; color: var(--muted);
+    font-size: 12px; line-height: 1.8;
+  }
+  .board-link {
+    margin-top: 10px; display: inline-block; cursor: pointer;
+    padding: 5px 14px; border-radius: 999px;
+    background: rgba(255, 105, 0, .1); color: var(--accent-deep);
+    font-size: 12px; font-weight: 700;
+  }
+  .board-link:hover { background: var(--accent); color: #fff; }
+  .day-label {
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px;
+    color: var(--muted); margin: 24px 0 4px;
+  }
+  .value-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 22px;
+  }
+  .value-card {
+    background: var(--card); border-radius: 24px; padding: 22px 26px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
+  }
+  .value-title {
+    font-size: 13px; font-weight: 800; letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .expandable { cursor: pointer; }
+  .expandable.open { -webkit-line-clamp: unset; }
+
   .empty {
     background: var(--card); border-radius: 18px; padding: 60px;
     text-align: center; color: var(--muted); font-size: 15px;
@@ -336,6 +377,7 @@
 <main>
   <div id="error"></div>
 
+  <div id="home">
   <div class="guide">
     <div class="guide-title">Agent 对接指引</div>
     <div class="guide-sub">让任意 code agent 把工作记忆接入 mymem · 服务地址 http://1.92.76.106</div>
@@ -411,6 +453,9 @@ cursor_hooks.json · codex_config.toml</pre>
     </div>
   </div>
   <div id="timeline"></div>
+  </div>
+
+  <div id="board"></div>
 </main>
 
 <script>
@@ -487,6 +532,13 @@ function esc(s) {
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+// agent 徽标配色（同一 agent 颜色固定，跨渲染保持一致）
+const agentIdx = {};
+const tagClass = (a) => {
+  if (!(a in agentIdx)) agentIdx[a] = Object.keys(agentIdx).length;
+  return "agent-tag" + ["", " alt", " alt2"][agentIdx[a] % 3];
+};
+
 let lastItems = [];
 
 async function load() {
@@ -549,12 +601,10 @@ function renderDigest(list) {
   $("digestList").innerHTML = list.map((m) => `
     <div class="digest-card">
       <div class="name">${esc(m.title)}</div>
-      <div class="content">${esc(m.content)}</div>
+      <div class="content expandable">${esc(m.content)}</div>
       <div class="meta">${fmtTime(m.updated_at || m.created_at)} · ${esc(m.project)}
         ${m.archived ? " · 已归档" : ""}</div>
     </div>`).join("");
-  document.querySelectorAll(".digest-card .content").forEach((el) =>
-    el.addEventListener("click", () => el.classList.toggle("open")));
 }
 
 function render(all) {
@@ -574,13 +624,6 @@ function render(all) {
     stat(Object.keys(byProject).length, "涉及项目") +
     stat(new Set(items.map((it) => it.source_agent)).size, "参与 Agent") +
     CATEGORIES.filter((c) => byCat[c]).map((c) => stat(byCat[c], CAT_CN[c])).join("");
-
-  // agent 徽标配色（同一 agent 颜色固定）
-  const agentIdx = {};
-  const tagClass = (a) => {
-    if (!(a in agentIdx)) agentIdx[a] = Object.keys(agentIdx).length;
-    return "agent-tag" + ["", " alt", " alt2"][agentIdx[a] % 3];
-  };
 
   // 分组卡片（按项目 / 按 Agent）
   // 总结（archive）只在「链路总结」区展示，不进工作卡
@@ -630,6 +673,8 @@ function render(all) {
         <div>
           <div class="agent-name">${head}</div>
           ${sub}
+          ${groupMode === "project"
+            ? `<div class="board-link" data-project="${esc(key)}">项目看板 →</div>` : ""}
         </div>
         <div class="count-badge">${list.length}</div>
       </div>
@@ -639,14 +684,6 @@ function render(all) {
     </div>`;
   }).join("");
   $("agents").innerHTML = cards || `<div class="empty">当天没有记录</div>`;
-  document.querySelectorAll(".flow-toggle").forEach((el) =>
-    el.addEventListener("click", () => {
-      const flows = el.parentElement.querySelectorAll(".mem.flow");
-      const open = flows.length && flows[0].style.display === "none";
-      flows.forEach((f) => (f.style.display = open ? "block" : "none"));
-      el.textContent = (open ? "▾ " : "▸ ") + el.dataset.n +
-        " 条改动流水（点击" + (open ? "收起" : "展开") + "）";
-    }));
   // 时间线卡片（点击展开全文；默认隐藏 context 流水）
   const tlItems = items.filter((m) => showFlow || m.category !== "context");
   if (!tlItems.length) {
@@ -674,6 +711,145 @@ function render(all) {
   document.querySelectorAll(".tl").forEach((el) =>
     el.addEventListener("click", () => el.classList.toggle("open")));
 }
+
+// ===== 项目看板 =====
+async function openBoard(project) {
+  $("error").style.display = "none";
+  try {
+    const params = new URLSearchParams({
+      project, limit: 500, include_archived: "true" });
+    const resp = await fetch("/api/v1/memories?" + params, { headers: headers() });
+    if (!resp.ok) throw new Error("HTTP " + resp.status + " " + await resp.text());
+    renderBoard(project, await resp.json());
+    $("home").style.display = "none";
+    $("board").style.display = "block";
+    window.scrollTo(0, 0);
+  } catch (e) {
+    $("error").textContent = "看板加载失败：" + e.message;
+    $("error").style.display = "block";
+  }
+}
+
+function renderBoard(project, items) {
+  const byCat = {};
+  for (const it of items) byCat[it.category] = (byCat[it.category] || 0) + 1;
+  const isRule = (m) => (m.tags || []).includes("rule");
+  const rules = items.filter(isRule);
+  const agentList = [...new Set(items.map((m) => m.source_agent))];
+  const lastAt = items.map((m) => m.created_at).sort().pop() || "";
+  const stat = (n, label) =>
+    `<div class="stat"><div class="num">${n}</div><div class="label">${label}</div></div>`;
+  const boardMem = (m, cls) => `
+      <div class="mem${cls}">
+        <div class="row">
+          <span class="pill p-${m.category}">${CAT_CN[m.category]}</span>
+          <span class="title">${esc(m.title)}</span>
+        </div>
+        <div class="content expandable">${esc(m.content)}</div>
+        <div class="meta">
+          <span class="${tagClass(m.source_agent)}">${esc(m.source_agent)}</span>
+          <span>${fmtTime(m.created_at)}</span>
+        </div>
+      </div>`;
+
+  // 最近做了什么：AI 周期总结 + 近 7 天按天动态（流水折叠）
+  const sums = items.filter((m) => m.category === "archive").slice(0, 3);
+  const dayMap = {};
+  for (const m of items.filter((m2) => m2.category !== "archive")) {
+    const day = (m.created_at || "").slice(0, 10);
+    (dayMap[day] = dayMap[day] || []).push(m);
+  }
+  const dayHtml = Object.keys(dayMap).sort().reverse().slice(0, 7).map((day) => {
+    const list = dayMap[day].slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const flows = list.filter((m) => m.category === "context");
+    const highs = list.filter((m) => m.category !== "context");
+    return `<div class="day-group">
+      <div class="day-label">${day}</div>
+      ${highs.map((m) => boardMem(m, "")).join("")}
+      ${flows.length ? `<div class="flow-toggle" data-n="${flows.length}">▸ ${flows.length} 条改动流水（点击展开）</div>` : ""}
+      ${flows.map((m) => boardMem(m, " flow")).join("")}
+    </div>`;
+  }).join("");
+
+  // 沉淀的价值：规则置顶 + 决策 / 教训 / 约定
+  const valCol = (cat) => {
+    const list = items.filter((m) => m.category === cat && !isRule(m))
+      .slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    if (!list.length) return "";
+    return `<div class="value-card">
+      <div class="value-title" style="color:var(--${cat})">${CAT_CN[cat]} · ${list.length}</div>
+      ${list.map((m) => `
+        <div class="mem">
+          <div class="row"><span class="title">${esc(m.title)}</span></div>
+          <div class="content expandable">${esc(m.content)}</div>
+        </div>`).join("")}
+    </div>`;
+  };
+  const valCols = ["decision", "lesson", "convention"].map(valCol).join("");
+
+  $("board").innerHTML = `
+    <button class="board-back" id="boardBack">← 返回总览</button>
+    <div class="board-head">
+      <div>
+        <div class="board-name">${esc(project)}</div>
+        <div class="agent-tags">${agentList.map((a) =>
+          `<span class="${tagClass(a)}">${esc(a)}</span>`).join("")}</div>
+      </div>
+      <div class="board-meta">最近活跃 ${fmtTime(lastAt)} · 共 ${items.length} 条记忆</div>
+    </div>
+    <div class="stats">
+      ${stat(items.length, "记忆总数")}
+      ${stat(byCat.decision || 0, "决策")}
+      ${stat(byCat.lesson || 0, "教训")}
+      ${stat(byCat.convention || 0, "约定")}
+      ${stat(rules.length, "规则")}
+      ${stat(byCat.archive || 0, "总结")}
+    </div>
+    <h2>最近做了什么</h2>
+    ${sums.map((m) => `
+      <div class="digest-card">
+        <div class="name">${esc(m.title)}</div>
+        <div class="content expandable">${esc(m.content)}</div>
+        <div class="meta">${fmtTime(m.updated_at || m.created_at)} · AI 周期总结</div>
+      </div>`).join("")}
+    ${dayHtml || '<div class="empty">还没有动态</div>'}
+    <h2>沉淀的价值</h2>
+    ${rules.length ? `
+      <div class="rules">
+        <div class="rules-title">生效规则</div>
+        <div class="rules-note">tags 含 rule 的硬约束，所有 agent 会话开始自动注入并遵守</div>
+        ${rules.map((m) => `
+          <div class="rule-item">
+            <span class="rule-flag">规则</span>
+            <span class="title">${esc(m.title)}</span>
+            <span class="content">${esc(m.content)}</span>
+          </div>`).join("")}
+      </div>` : ""}
+    ${valCols ? `<div class="value-grid">${valCols}</div>`
+      : '<div class="empty">还没有沉淀的决策 / 教训 / 约定</div>'}`;
+}
+
+// 全局委托：流水折叠 / 内容展开 / 看板进出
+document.addEventListener("click", (e) => {
+  const flow = e.target.closest(".flow-toggle");
+  if (flow) {
+    const open = flow.classList.toggle("open");
+    flow.parentElement.querySelectorAll(".mem.flow").forEach((f) =>
+      f.classList.toggle("show", open));
+    flow.textContent = (open ? "▾ " : "▸ ") + flow.dataset.n +
+      " 条改动流水（点击" + (open ? "收起" : "展开") + "）";
+    return;
+  }
+  const exp = e.target.closest(".expandable");
+  if (exp) { exp.classList.toggle("open"); return; }
+  const link = e.target.closest(".board-link");
+  if (link) { openBoard(link.dataset.project); return; }
+  if (e.target.closest("#boardBack")) {
+    $("board").style.display = "none";
+    $("home").style.display = "block";
+  }
+});
 
 $("reload").addEventListener("click", load);
 $("date").addEventListener("change", () => { $("q").value = ""; load(); });
