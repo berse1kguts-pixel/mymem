@@ -64,3 +64,32 @@ class DigestRequest(BaseModel):
     agent: str = "unknown"
     system: str = ""  # 系统标识：主机名|操作系统
     title: str = ""   # 可选：链路周期总结等自定义标题
+
+
+class RetroRequest(BaseModel):
+    """个人复盘 / 日常总结：与任何项目都无关。
+
+    由 AI 从原始材料（如复盘文档）提炼出结构化内容后提交；
+    服务端只负责入库（归入 personal 保留命名空间）+ 自动脱敏 + 审计留痕。
+    """
+    title: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1)  # AI 生成的结构化总结（事件/根因/教训等）
+    category: Literal["lesson", "decision", "context"] = "lesson"
+    tags: list[str] = []                # 自动追加 "retro" 与可选日期 tag
+    source_doc: str = ""                # 原始材料文件名/来源（可选，便于溯源）
+    agent: str = "unknown"
+    system: str = ""                    # 系统标识：主机名|操作系统
+    supersedes_id: Optional[int] = None # 更新旧复盘时显式覆盖
+
+
+class RetroOut(BaseModel):
+    """retro 提交结果。"""
+    id: int
+    project: str
+    category: str
+    title: str
+    content: str
+    tags: list[str]
+    created_at: str
+    updated_at: str
+    masked: int = 0                    # 入库时被打码的敏感串数量

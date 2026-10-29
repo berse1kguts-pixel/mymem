@@ -186,6 +186,54 @@ def memory_archive(project: str, date: str, summary: str,
 
 
 @mcp.tool()
+def memory_retro_add(title: str, summary: str,
+                     category: str = "lesson",
+                     tags: list[str] = [], source_doc: str = "",
+                     system: str = "") -> dict:
+    """提交一条个人复盘 / 日常总结（与任何项目都无关）。
+
+    适用于"刚解决一个困扰很久的问题"这类跨项目经验沉淀：先由 AI 把原始
+    材料（复盘文档等）提炼成结构化总结（事件/根因/修复/可复用教训），再调用
+    本工具入库。固定存入 personal 保留命名空间，自动追加 retro 标签、
+    脱敏敏感信息并留审计痕。同标题再提交视为刷新更新。
+
+    category: lesson(默认，排障/复盘经验) | decision | context
+    source_doc: 原始材料文件名（可选，自动落成 src:xxx 标签便于溯源）
+    """
+    security.check_project(db.PERSONAL_PROJECT)
+    conn = db.get_conn()
+    tags = list(tags)
+    if "retro" not in tags:
+        tags.append("retro")
+    if source_doc:
+        src = source_doc.strip()[-60:]
+        if src not in tags:
+            tags.append("src:" + src)
+    item, _ = security.mask_item({
+        "category": category, "title": title, "content": summary,
+        "tags": tags,
+    })
+    row = db.insert_memory(conn, db.PERSONAL_PROJECT, item, "mcp", system)
+    security.log("write", db.PERSONAL_PROJECT, "mcp", system,
+                 row["id"], row["title"])
+    return _out(row)
+
+
+@mcp.tool()
+def memory_retro_search(query: str = "", limit: int = 20) -> list[dict]:
+    """检索个人复盘 / 日常总结（personal 命名空间，项目无关）。
+
+    query 非空走全文检索（中文子串可用）；为空则按最近更新时间列出。
+    """
+    security.check_project(db.PERSONAL_PROJECT)
+    conn = db.get_conn()
+    rows = db.search_memories(conn, db.PERSONAL_PROJECT, None,
+                             query or None, None, False, False, limit)
+    security.log("read", db.PERSONAL_PROJECT, detail="retro_search q=%s" % (query or ""))
+    return [_out(r) for r in rows]
+
+
+@mcp.tool()
 def memory_backup() -> dict:
     """立即执行一次备份导出 + 邮件推送。"""
     return backup_mod.run_backup()

@@ -5,6 +5,12 @@
   - hook 摄入时若与既有活跃记忆重复（同 project+category+标题），视为更新合并；
   - 摄入时可指定 supersedes_id 覆盖旧记忆，旧记忆标记为 superseded；
   - 每日归档时 AI 提交 archive 总结，被覆盖的条目标记 archived=1。
+
+个人命名空间：
+  - PERSONAL_PROJECT（"personal"）是保留命名空间，存放与任何项目都无关的
+    日常总结 / 故障复盘（经 /api/v1/retro 与 MCP retro_* 工具读写）。
+    所有记忆都按 project 命名空间隔离，"项目无关"即归到这一个专属命名空间，
+    不新增表、不放宽既有隔离。
 """
 import json
 import re
@@ -13,6 +19,9 @@ import threading
 from datetime import datetime, timezone
 
 from . import config
+
+# 保留命名空间：项目无关的个人复盘 / 日常总结（retro 模块专用）
+PERSONAL_PROJECT = "personal"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (

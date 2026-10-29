@@ -154,6 +154,60 @@ def archive_digest(req: models.DigestRequest):
     return out.model_copy(update={"tags": out.tags + ["covered:%d" % marked]})
 
 
+@router.post("/retro", response_model=models.RetroOut)
+def add_retro(req: models.RetroRequest):
+    """个人复盘 / 日常总结（与任何项目都无关）。
+
+    AI 从原始材料（复盘文档、长篇排障记录等）提炼出结构化总结后提交；
+    服务端只负责入库：固定归入 personal 保留命名空间、自动追加 "retro" 标签、
+    脱敏 + 审计留痕。同标题条目自动合并更新（再次复盘同事件即刷新）。
+    """
+    conn = db.get_conn()
+    _guard(db.PERSONAL_PROJECT, "write", req.agent, req.system,
+           detail="retro add %s" % req.title)
+    tags = list(req.tags)
+    if "retro" not in tags:
+        tags.append("retro")
+    if req.source_doc:
+        src = req.source_doc.strip()[-60:]
+        if src not in tags:
+            tags.append("src:" + src)
+    item, masked = security.mask_item({
+        "category": req.category,
+        "title": req.title,
+        "content": req.summary,
+        "tags": tags,
+        "supersedes_id": req.supersedes_id,
+    })
+    data = db.insert_memory(conn, db.PERSONAL_PROJECT, item,
+                           req.agent, req.system)
+    security.log("write", db.PERSONAL_PROJECT, req.agent, req.system,
+                 data["id"], data["title"])
+    return models.RetroOut(
+        id=data["id"], project=data["project"], category=data["category"],
+        title=data["title"], content=data["content"], tags=data["tags"],
+        created_at=data["created_at"], updated_at=data["updated_at"],
+        masked=masked,
+    )
+
+
+@router.get("/retro", response_model=list[models.RetroOut])
+def list_retros(q: str | None = None, limit: int = Query(50, le=500)):
+    """列出个人复盘 / 日常总结（personal 命名空间，项目无关）。
+
+    q 非空走全文检索（中文子串可用）。
+    """
+    conn = db.get_conn()
+    _guard(db.PERSONAL_PROJECT, "read", detail="retro list q=%s" % (q or ""))
+    rows = db.search_memories(conn, db.PERSONAL_PROJECT, None,
+                             q, None, False, False, limit, 0)
+    return [models.RetroOut(
+        id=r["id"], project=r["project"], category=r["category"],
+        title=r["title"], content=r["content"], tags=r["tags"],
+        created_at=r["created_at"], updated_at=r["updated_at"],
+    ) for r in rows]
+
+
 @router.get("/bootstrap")
 def bootstrap(project: str = Query(...), limit: int = Query(20, le=100)):
     """会话开始时调用：返回该项目的必读记忆（约定 + 有效决策）。
