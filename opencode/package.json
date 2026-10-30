@@ -1,0 +1,14 @@
+{
+  "name": "mymem-opencode",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.0.32",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
