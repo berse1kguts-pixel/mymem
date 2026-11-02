@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""mymem 自动上报：从 git 工作区收集本次修改，整理成记忆并合并到 mymem。
+"""Schierke 自动上报：从 git 工作区收集本次修改，整理成记忆并记到 Schierke。
 
 由各 code agent 的 hook / 规则触发（不依赖 git 钩子），保证"改完就上报"。
 
@@ -8,7 +8,7 @@
 
 项目区分（重要）：
     --project（或环境变量 MYMEM_PROJECT）必须与当前项目一致。
-    不同项目名的记忆在 mymem 中相互隔离——个人项目传个人项目名，
+    不同项目名的记忆在 Schierke 中相互隔离——个人项目传个人项目名，
     公司项目传公司项目名，检索/界面按项目过滤，互不混淆。
 """
 import argparse
@@ -107,7 +107,7 @@ def collect_changes(since: str | None, cwd: str | None = None) -> tuple[str, str
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="mymem 自动上报")
+    parser = argparse.ArgumentParser(description="Schierke 自动上报")
     parser.add_argument("--project",
                         default=os.environ.get("MYMEM_PROJECT", ""),
                         help="项目名（必填；不同项目记忆相互隔离）")

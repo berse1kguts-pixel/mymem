@@ -1,6 +1,6 @@
-# mymem · 跨 Agent 共享记忆中心
+# Schierke · 跨 Agent 记忆小魔女
 
-> 为所有 Code Agent（Trae、Antigravity、Qoder、Cursor、Claude Code 等）提供**长期记忆、约定同步与经验沉淀**的中枢服务。  
+> 为所有 Code Agent（Trae、Antigravity、Qoder、Cursor、Claude Code 等）提供**长期记忆、约定同步与经验沉淀**的小魔女。  
 > 局域网/公网访问地址：`http://1.92.76.106`
 
 ---
@@ -60,7 +60,7 @@
     "mymem": {
       "type": "http",
       "url": "http://1.92.76.106/mcp",
-      "description": "mymem · 跨 agent 共享记忆中枢",
+      "description": "Schierke · 跨 agent 记忆小魔女",
       "trust": true,
       "alwaysAllow": [
         "memory_bootstrap",
@@ -141,7 +141,7 @@ OpenCode 有原生插件钩子，比"每条规则都提醒模型记得上报"可
 }
 ```
 
-- `url`：mymem 服务地址，默认 `http://1.92.76.106`
+- `url`：Schierke 服务地址，默认 `http://1.92.76.106`
 - `token`：服务端配了 `MYMEM_TOKEN` 时填，以 `Authorization: Bearer` 发送
 - `projects`：工作目录 → 项目名；没配的目录直接取目录名（`D:\program\code\IOT` → `IOT`）
 

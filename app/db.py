@@ -2,8 +2,9 @@
 """存储层：SQLite + FTS5（trigram 分词，兼容中文子串检索）。
 
 记忆条目的生命周期：
-  - hook 摄入时若与既有活跃记忆重复（同 project+category+标题），视为更新合并；
-  - 摄入时可指定 supersedes_id 覆盖旧记忆，旧记忆标记为 superseded；
+  - 同 project+category+标题 的活跃记忆再次摄入时：内容无变化则只刷新来源与时间；
+    内容有变化则新建一条版本记录，旧记录标记为 superseded（版本链走 supersedes_id）；
+  - 摄入时若显式指定 supersedes_id，旧记忆直接标记为 superseded；
   - 每日归档时 AI 提交 archive 总结，被覆盖的条目标记 archived=1。
 
 个人命名空间：
@@ -109,35 +110,54 @@ def _normalize(text: str) -> str:
 
 def insert_memory(conn: sqlite3.Connection, project: str, item: dict,
                   source_agent: str, source_system: str = "") -> dict:
-    """写入一条记忆，处理合并（同标题更新）与覆盖（supersedes）。"""
+    """写入一条记忆；同标题修改保留版本，而不是覆盖原记录。
+
+    - 同 project+category+标题 的活跃记忆：
+        * 内容与 tags 完全一致 → 只刷新来源与时间，不新增版本（merged=True）；
+        * 内容有变化 → 以旧记忆为 supersedes_id 新建一条，旧记忆标记 superseded；
+    - 显式 supersedes_id 优先：用本条覆盖指定旧记忆。
+    """
     now = _now()
     title = item["title"].strip()
-
-    # 合并：同 project+category+归一化标题的活跃记忆 → 视为同一条，更新内容
-    dup = conn.execute(
-        "SELECT id, title FROM memories WHERE project=? AND category=? "
-        "AND status='active' AND archived=0",
-        (project, item["category"]),
-    ).fetchall()
-    for row in dup:
-        if _normalize(row["title"]) == _normalize(title):
-            conn.execute(
-                "UPDATE memories SET content=?, tags=?, source_agent=?, "
-                "source_system=?, updated_at=? WHERE id=?",
-                (item["content"], json.dumps(item.get("tags", []), ensure_ascii=False),
-                 source_agent, source_system, now, row["id"]),
-            )
-            conn.commit()
-            out = conn.execute("SELECT * FROM memories WHERE id=?",
-                               (row["id"],)).fetchone()
-            data = _row_to_dict(out)
-            data["merged"] = True
-            return data
+    new_tags = item.get("tags", [])
 
     supersedes_id = item.get("supersedes_id")
+    if supersedes_id is None:
+        # 合并判定：同 project+category+归一化标题的活跃记忆
+        dup = conn.execute(
+            "SELECT id, title, content, tags FROM memories WHERE project=? "
+            "AND category=? AND status='active' AND archived=0",
+            (project, item["category"]),
+        ).fetchall()
+        for row in dup:
+            if _normalize(row["title"]) != _normalize(title):
+                continue
+            try:
+                old_tags = json.loads(row["tags"])
+            except (ValueError, TypeError):
+                old_tags = []
+            if (row["content"].strip() == item["content"].strip()
+                    and old_tags == new_tags):
+                # 内容无变化：只更新来源与时间，避免产生无意义的版本
+                conn.execute(
+                    "UPDATE memories SET source_agent=?, source_system=?, "
+                    "updated_at=? WHERE id=?",
+                    (source_agent, source_system, now, row["id"]),
+                )
+                conn.commit()
+                out = conn.execute("SELECT * FROM memories WHERE id=?",
+                                   (row["id"],)).fetchone()
+                data = _row_to_dict(out)
+                data["merged"] = True
+                return data
+            # 内容有变化：旧记录作为父版本，新建一条版本记录
+            supersedes_id = row["id"]
+            break
+
     if supersedes_id is not None:
         conn.execute(
-            "UPDATE memories SET status='superseded', updated_at=? WHERE id=?",
+            "UPDATE memories SET status='superseded', updated_at=? "
+            "WHERE id=? AND status='active'",
             (now, supersedes_id),
         )
 
@@ -147,7 +167,7 @@ def insert_memory(conn: sqlite3.Connection, project: str, item: dict,
         "created_at, updated_at) "
         "VALUES (?,?,?,?,?,?,?, 'active', 0, ?, ?, ?)",
         (project, item["category"], title, item["content"],
-         json.dumps(item.get("tags", []), ensure_ascii=False),
+         json.dumps(new_tags, ensure_ascii=False),
          source_agent, source_system, supersedes_id, now, now),
     )
     conn.commit()
@@ -237,6 +257,62 @@ def delete_memory(conn: sqlite3.Connection, memory_id: int) -> bool:
     cur = conn.execute("DELETE FROM memories WHERE id=?", (memory_id,))
     conn.commit()
     return cur.rowcount > 0
+
+
+_CATEGORIES = {"decision", "lesson", "convention", "context", "archive"}
+
+
+def import_memories(conn: sqlite3.Connection, items: list[dict],
+                    agent: str = "import", system: str = "") -> dict:
+    """把导出的 memories.json 条目合并进当前库（用于迁移到新实例）。
+
+    去重：同 project+category+title+content 视为同一条，直接跳过；
+    保留原始时间戳、归档标记、状态与来源；supersedes_id 按本次导入的
+    旧 ID → 新 ID 映射重建，映射不到则置空。返回导入/跳过统计。
+    """
+    now = _now()
+    imported = skipped = 0
+    id_map: dict[int, int] = {}
+    for it in items:
+        project = (it.get("project") or "").strip()
+        category = it.get("category") or ""
+        title = (it.get("title") or "").strip()
+        content = it.get("content") or ""
+        if not project or not title or category not in _CATEGORIES:
+            skipped += 1
+            continue
+        tags = it.get("tags") if isinstance(it.get("tags"), list) else []
+        dup = conn.execute(
+            "SELECT id FROM memories WHERE project=? AND category=? "
+            "AND title=? AND content=?",
+            (project, category, title, content),
+        ).fetchone()
+        old_id = it.get("id")
+        if dup:
+            if isinstance(old_id, int):
+                id_map[old_id] = dup["id"]
+            skipped += 1
+            continue
+        old_parent = it.get("supersedes_id")
+        parent_id = id_map.get(old_parent) if isinstance(old_parent, int) else None
+        cur = conn.execute(
+            "INSERT INTO memories (project, category, title, content, tags, "
+            "source_agent, source_system, status, archived, supersedes_id, "
+            "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (project, category, title, content,
+             json.dumps(tags, ensure_ascii=False),
+             it.get("source_agent") or agent,
+             it.get("source_system") or system,
+             "superseded" if it.get("status") == "superseded" else "active",
+             1 if it.get("archived") else 0,
+             parent_id,
+             it.get("created_at") or now, it.get("updated_at") or now),
+        )
+        if isinstance(old_id, int):
+            id_map[old_id] = cur.lastrowid
+        imported += 1
+    conn.commit()
+    return {"imported": imported, "skipped": skipped, "total": len(items)}
 
 
 def daily_rows(conn: sqlite3.Connection, project: str, date: str,

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""MCP 接口：各 code agent 通过 MCP 协议直接读写记忆。
+"""MCP 接口：各 code agent 通过 MCP 协议直接读写 Schierke 记忆库。
 
 挂载在同进程 /mcp 路径（streamable HTTP），配置示例：
-    {"mymem": {"url": "http://1.92.76.106:8700/mcp",
+    {"mymem": {"url": "http://1.92.76.106/mcp",
                "headers": {"Authorization": "Bearer <token>"}}}
 """
 import json
@@ -16,7 +16,7 @@ from . import db
 from . import security
 
 # 自部署服务，访问控制由 MYMEM_TOKEN 负责，关闭 DNS-rebinding 防护
-mcp = FastMCP("mymem", stateless_http=True,
+mcp = FastMCP("schierke", stateless_http=True,
               transport_security=TransportSecuritySettings(
                   enable_dns_rebinding_protection=False))
 
@@ -80,8 +80,9 @@ def memory_add(project: str, category: str, title: str, content: str,
                agent: str = "mcp", system: str = "") -> dict:
     """新增一条记忆。category: decision|lesson|convention|context。
 
-    同 project+category+标题 已存在时自动合并更新；
-    supersedes_id>0 表示用本条覆盖旧记忆；
+    同 project+category+标题 已存在时：内容不变则合并刷新，
+    内容变化则新建版本（旧记忆自动标记 superseded，版本链可在界面详情页追溯）；
+    supersedes_id>0 表示用本条覆盖指定旧记忆；
     system 传系统标识（主机名|操作系统），用于界面区分来源。
     入库前自动脱敏敏感信息。
     """

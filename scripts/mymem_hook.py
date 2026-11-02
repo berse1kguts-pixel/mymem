@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""mymem hook 客户端：code agent 在完成一段修改后调用，把本次会话的记忆
-整理并合并到 mymem 服务。
+"""Schierke 记忆上报客户端：code agent 在完成一段修改后调用，把本次会话的记忆
+整理并上报到 Schierke。
 
 用法：
     python mymem_hook.py digest.json

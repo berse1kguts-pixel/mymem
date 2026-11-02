@@ -8,13 +8,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from . import api, backup, config, security
 from .mcp_server import mcp
 
 mcp_app = mcp.streamable_http_app()
-UI_PATH = Path(__file__).parent / "ui" / "index.html"
+UI_DIR = Path(__file__).parent / "ui"
+UI_PATH = UI_DIR / "index.html"
 
 
 @asynccontextmanager
@@ -24,12 +25,14 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title="mymem", lifespan=lifespan)
+app = FastAPI(title="Schierke", lifespan=lifespan)
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    if (config.API_TOKEN and request.url.path not in ("/health", "/ui", "/")):
+    path = request.url.path
+    if (config.API_TOKEN and path != "/health" and path != "/"
+            and not path.startswith("/ui")):
         auth = request.headers.get("Authorization", "")
         token = auth[7:] if auth.startswith("Bearer ") else ""
         scope = security.set_scope_from_token(token)
@@ -42,12 +45,22 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "mymem"}
+    return {"status": "ok", "service": "schierke"}
 
 
 @app.get("/ui", response_class=HTMLResponse)
 def ui():
     return UI_PATH.read_text(encoding="utf-8")
+
+
+@app.get("/ui/schierke.png")
+def schierke_full():
+    return FileResponse(UI_DIR / "schierke.png", media_type="image/png")
+
+
+@app.get("/ui/schierke-icon.png")
+def schierke_icon():
+    return FileResponse(UI_DIR / "schierke-icon.png", media_type="image/png")
 
 
 @app.get("/")

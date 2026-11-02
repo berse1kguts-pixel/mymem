@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""mymem 硬钩子调度器（兼容 Qoder 与 Antigravity）。
+"""Schierke 硬钩子调度器（兼容 Qoder 与 Antigravity）。
 
 由确定性 Hooks 的事件触发，事件触发就执行脚本，不依赖模型自觉：
 
@@ -130,9 +130,9 @@ def do_bootstrap(project: str, agy: bool) -> None:
         with urllib.request.urlopen(req, timeout=15) as resp:
             body = json.load(resp)
     except Exception as e:
-        text = "（mymem bootstrap 获取失败：%s）" % e
+        text = "（Schierke bootstrap 获取失败：%s）" % e
     else:
-        lines = ["# mymem 项目必读记忆（%s）" % project,
+        lines = ["# Schierke 项目必读记忆（%s）" % project,
                  "以下为该项目的约定与有效决策，务必遵守：", ""]
         for it in body.get("must_read", []):
             tags = it.get("tags") or []
@@ -159,7 +159,7 @@ def do_bootstrap(project: str, agy: bool) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="mymem 硬钩子调度器")
+    parser = argparse.ArgumentParser(description="Schierke 硬钩子调度器")
     parser.add_argument("--project", default="")
     parser.add_argument("--agent", default="qoder")
     parser.add_argument("--event", default="",

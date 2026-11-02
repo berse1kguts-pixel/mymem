@@ -69,6 +69,11 @@ def set_scope_from_token(token: str) -> str | None:
     return None
 
 
+def current_scope() -> str | None:
+    """当前请求的访问范围：None=未启用 token，"*"=全局，其它=项目名。"""
+    return _scope_var.get()
+
+
 def check_project(project: str) -> None:
     """项目级 token 越权访问时抛 PermissionError。"""
     scope = _scope_var.get()

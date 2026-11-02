@@ -3,7 +3,8 @@
 
 合规：入库自动脱敏；项目级 token 只能访问自己的项目；读写全留痕。
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from . import backup, db, models, security
 
@@ -25,7 +26,8 @@ def _guard(project: str, action: str, agent: str = "", system: str = "",
 def ingest(req: models.IngestRequest):
     """hook 接口：agent 完成修改后提交本次会话的记忆条目。
 
-    相同 project+category+标题 的条目自动合并更新；
+    同 project+category+标题 的条目：内容无变化则合并刷新；
+    内容有变化则新建版本并把旧版本标记为 superseded（历史可追溯）。
     MemoryCreate.supersedes_id 可显式覆盖旧记忆。
     可选 session_summary 会作为 context 类记忆存档。
     入库前自动脱敏敏感信息。
@@ -160,7 +162,8 @@ def add_retro(req: models.RetroRequest):
 
     AI 从原始材料（复盘文档、长篇排障记录等）提炼出结构化总结后提交；
     服务端只负责入库：固定归入 personal 保留命名空间、自动追加 "retro" 标签、
-    脱敏 + 审计留痕。同标题条目自动合并更新（再次复盘同事件即刷新）。
+    脱敏 + 审计留痕。同标题再次复盘视为一次修订：内容有变化时保留旧版本
+    （supersedes_id 版本链），内容不变则只刷新时间；显式 supersedes_id 可直接指定父版本。
     """
     conn = db.get_conn()
     _guard(db.PERSONAL_PROJECT, "write", req.agent, req.system,
@@ -236,4 +239,38 @@ def audit_log(project: str | None = None,
 def run_backup():
     """立即执行一次备份导出（+ 邮件推送，若已配置 SMTP）。"""
     result = backup.run_backup()
+    return result
+
+
+@router.get("/export")
+def export_all():
+    """一键导出全部记忆（zip：memories.json + digest.md + sqlite 快照 + manifest）。
+
+    下载后可直接解压查看，或用 mymem.sqlite3 替换新实例的 data 目录完成迁移。
+    项目级 token 无权导出（会跨项目泄露）。
+    """
+    scope = security.current_scope()
+    if scope not in (None, "*"):
+        raise HTTPException(403, "导出全部数据需要全局 token")
+    security.log("read", "", detail="export all")
+    path, filename = backup.build_export_zip()
+    return FileResponse(path, filename=filename, media_type="application/zip")
+
+
+@router.post("/import")
+def import_all(payload: dict = Body(...)):
+    """导入 memories.json（导出包里的同名文件，也接受纯数组）。
+
+    按 project+category+title+content 去重，已存在的条目跳过；
+    返回 {imported, skipped, total}。项目级 token 无权导入。
+    """
+    scope = security.current_scope()
+    if scope not in (None, "*"):
+        raise HTTPException(403, "导入数据需要全局 token")
+    items = payload.get("memories") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        raise HTTPException(400, "需要包含 memories 数组的 JSON")
+    result = db.import_memories(db.get_conn(), items)
+    security.log("write", "", detail="import %d skipped %d"
+                 % (result["imported"], result["skipped"]))
     return result

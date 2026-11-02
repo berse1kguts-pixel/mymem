@@ -16,7 +16,7 @@ def test_health():
     assert client.get("/health").json()["status"] == "ok"
 
 
-def test_ingest_merge_and_supersede():
+def test_ingest_versioning_and_supersede():
     r = client.post("/api/v1/ingest", json={
         "project": "demo", "agent": "trae", "system": "HOST-A|Windows-11",
         "session_summary": "完成了存储层",
@@ -31,27 +31,49 @@ def test_ingest_merge_and_supersede():
     body = r.json()
     assert len(body["created"]) == 3  # 含 session_summary
     assert body["created"][0]["source_system"] == "HOST-A|Windows-11"
+    decision_id = body["created"][1]["id"]
+    lesson_id = body["created"][2]["id"]
 
-    # 同标题再提交 → 合并更新，不新增
+    # 同标题内容变化 → 新建版本，旧版本标记 superseded
     r2 = client.post("/api/v1/ingest", json={
         "project": "demo", "agent": "claude",
         "memories": [{"category": "decision", "title": "使用 SQLite",
                       "content": "轻量、零运维、支持 FTS5", "tags": ["db"]}],
     })
-    assert len(r2.json()["created"]) == 0
-    assert len(r2.json()["merged"]) == 1
+    body2 = r2.json()
+    assert len(body2["created"]) == 1
+    assert len(body2["merged"]) == 0
+    v2 = body2["created"][0]
+    assert v2["supersedes_id"] == decision_id
+    assert client.get("/api/v1/memories/%d" % decision_id).json()["status"] == "superseded"
 
-    # supersedes 覆盖旧记忆（created[2] 是 PowerShell 教训那条）
-    old_id = body["created"][2]["id"]
+    # 同标题且内容一致 → 只刷新来源，不再新增版本
     r3 = client.post("/api/v1/ingest", json={
+        "project": "demo", "agent": "trae",
+        "memories": [{"category": "decision", "title": "使用 SQLite",
+                      "content": "轻量、零运维、支持 FTS5", "tags": ["db"]}],
+    })
+    assert len(r3.json()["created"]) == 0
+    assert len(r3.json()["merged"]) == 1
+
+    # 列表默认隐藏被覆盖的旧版本，include_superseded=true 才返回
+    active = client.get("/api/v1/memories",
+                        params={"project": "demo", "category": "decision"}).json()
+    assert len([m for m in active if m["title"] == "使用 SQLite"]) == 1
+    allv = client.get("/api/v1/memories", params={
+        "project": "demo", "category": "decision",
+        "include_superseded": True}).json()
+    assert len([m for m in allv if m["title"] == "使用 SQLite"]) == 2
+
+    # 显式 supersedes 覆盖旧记忆
+    r4 = client.post("/api/v1/ingest", json={
         "project": "demo", "agent": "trae",
         "memories": [{"category": "lesson", "title": "PowerShell 命令分隔",
                       "content": "PowerShell 5 用分号，不能用 &&",
-                      "supersedes_id": old_id}],
+                      "supersedes_id": lesson_id}],
     })
-    new_id = r3.json()["created"][0]["id"]
-    old = client.get("/api/v1/memories/%d" % old_id).json()
-    assert old["status"] == "superseded"
+    new_id = r4.json()["created"][0]["id"]
+    assert client.get("/api/v1/memories/%d" % lesson_id).json()["status"] == "superseded"
     assert client.get("/api/v1/memories/%d" % new_id).json()["status"] == "active"
 
 
@@ -70,8 +92,10 @@ def test_search():
 def test_ui_page():
     r = client.get("/ui")
     assert r.status_code == 200
-    assert "AI 记忆中心" in r.text
+    assert "Schierke" in r.text and "记忆小魔女" in r.text
     assert client.get("/").status_code in (200, 307)
+    for asset in ("/ui/schierke.png", "/ui/schierke-icon.png"):
+        assert client.get(asset).status_code == 200
 
 
 def test_daily_digest_and_archive():

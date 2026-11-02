@@ -12,6 +12,7 @@ import smtplib
 import sqlite3
 import threading
 import time
+import zipfile
 from datetime import date, datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -46,6 +47,53 @@ def _export_files(target_date: str) -> dict:
     return {"dir": str(out_dir), "json": str(json_path),
             "markdown": str(md_path), "snapshot": str(snap_path),
             "count": len(items)}
+
+
+def build_export_zip() -> tuple[Path, str]:
+    """打包一份可直接移植的全量导出 zip。
+
+    内含：
+      memories.json   全量结构化记忆
+      digest.md       人类可读摘要
+      mymem.sqlite3   数据库快照（新实例可直接替换 data/mymem.sqlite3）
+      manifest.json   导出时间、条数、版本标识
+    """
+    conn = db.get_conn()
+    rows = conn.execute("SELECT * FROM memories ORDER BY id").fetchall()
+    items = [db._row_to_dict(r) for r in rows]
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    config.EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    zip_path = config.EXPORT_DIR / ("mymem-export-%s.zip" % stamp)
+
+    snapshot = config.EXPORT_DIR / (".mymem-%s.sqlite3" % stamp)
+    dest = sqlite3.connect(snapshot)
+    try:
+        conn.backup(dest)
+    finally:
+        dest.close()
+
+    manifest = {
+        "service": "schierke",
+        "schema_version": 1,
+        "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "count": len(items),
+    }
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("memories.json", json.dumps({
+                "exported_at": manifest["exported_at"],
+                "count": len(items),
+                "memories": items,
+            }, ensure_ascii=False, indent=2))
+            zf.writestr("digest.md",
+                        _render_markdown(items, date.today().isoformat()))
+            zf.write(snapshot, "mymem.sqlite3")
+            zf.writestr("manifest.json",
+                        json.dumps(manifest, ensure_ascii=False, indent=2))
+    finally:
+        snapshot.unlink(missing_ok=True)
+    return zip_path, zip_path.name
 
 
 def _render_markdown(items: list[dict], target_date: str) -> str:
