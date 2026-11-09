@@ -1,9 +1,4 @@
-# Schierke · 跨 Agent 记忆小魔女
-
-> 为所有 Code Agent（Trae、Antigravity、Qoder、Cursor、Claude Code 等）提供**长期记忆、约定同步与经验沉淀**的小魔女。  
-> 局域网/公网访问地址：`http://1.92.76.106`
-
----
+# MyMem
 
 ## 核心设计：双轨制记忆上报
 
