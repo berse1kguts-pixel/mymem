@@ -1,17 +1,7 @@
 # -*- coding: utf-8 -*-
-"""存储层：SQLite + FTS5（trigram 分词，兼容中文子串检索）。
+"""存储层：支持 SQLite（本地）与 TiDB / MySQL（云端全托管）。
 
-记忆条目的生命周期：
-  - 同 project+category+标题 的活跃记忆再次摄入时：内容无变化则只刷新来源与时间；
-    内容有变化则新建一条版本记录，旧记录标记为 superseded（版本链走 supersedes_id）；
-  - 摄入时若显式指定 supersedes_id，旧记忆直接标记为 superseded；
-  - 每日归档时 AI 提交 archive 总结，被覆盖的条目标记 archived=1。
-
-个人命名空间：
-  - PERSONAL_PROJECT（"personal"）是保留命名空间，存放与任何项目都无关的
-    日常总结 / 故障复盘（经 /api/v1/retro 与 MCP retro_* 工具读写）。
-    所有记忆都按 project 命名空间隔离，"项目无关"即归到这一个专属命名空间，
-    不新增表、不放宽既有隔离。
+配置了 TIDB_HOST 时自动切换为 TiDB 云数据库，未配置时使用本地 SQLite + FTS5。
 """
 import json
 import re
@@ -21,10 +11,19 @@ from datetime import datetime, timezone
 
 from . import config
 
+try:
+    import pymysql
+    import pymysql.cursors
+    import ssl
+    import certifi
+    _HAS_PYMYSQL = True
+except ImportError:
+    _HAS_PYMYSQL = False
+
 # 保留命名空间：项目无关的个人复盘 / 日常总结（retro 模块专用）
 PERSONAL_PROJECT = "personal"
 
-_SCHEMA = """
+_SQLITE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     project      TEXT NOT NULL,
@@ -73,6 +72,37 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project, ts);
 """
 
+_TIDB_SCHEMA = """
+CREATE TABLE IF NOT EXISTS memories (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    project      VARCHAR(64) NOT NULL,
+    category     VARCHAR(32) NOT NULL,
+    title        VARCHAR(255) NOT NULL,
+    content      LONGTEXT NOT NULL,
+    tags         TEXT NOT NULL,
+    source_agent VARCHAR(64) NOT NULL DEFAULT 'unknown',
+    source_system VARCHAR(64) NOT NULL DEFAULT '',
+    status       VARCHAR(32) NOT NULL DEFAULT 'active',
+    archived     TINYINT NOT NULL DEFAULT 0,
+    supersedes_id BIGINT NULL,
+    created_at   VARCHAR(64) NOT NULL,
+    updated_at   VARCHAR(64) NOT NULL,
+    INDEX idx_memories_project (project, status, archived)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    ts         VARCHAR(64) NOT NULL,
+    action     VARCHAR(32) NOT NULL,
+    project    VARCHAR(64) NOT NULL DEFAULT '',
+    agent      VARCHAR(64) NOT NULL DEFAULT '',
+    system     VARCHAR(64) NOT NULL DEFAULT '',
+    memory_id  BIGINT NULL,
+    detail     TEXT NOT NULL,
+    INDEX idx_audit_project (project, ts)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+"""
+
 _init_lock = threading.Lock()
 _initialized = False
 
@@ -81,8 +111,82 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def get_conn() -> sqlite3.Connection:
+class TiDBCursorWrapper:
+    def __init__(self, raw_cursor):
+        self._cur = raw_cursor
+
+    @property
+    def lastrowid(self):
+        return self._cur.lastrowid
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+
+class TiDBConnWrapper:
+    def __init__(self, raw_conn):
+        self._raw = raw_conn
+
+    def execute(self, sql: str, params=None):
+        sql = sql.replace("?", "%s")
+        sql = sql.replace("date(m.created_at, 'localtime')", "DATE(m.created_at)")
+        sql = sql.replace("date(created_at, 'localtime')", "DATE(created_at)")
+        sql = sql.replace("date(created_at,'localtime')", "DATE(created_at)")
+        cur = self._raw.cursor(pymysql.cursors.DictCursor)
+        if params is not None:
+            if isinstance(params, list):
+                params = tuple(params)
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        return TiDBCursorWrapper(cur)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        self._raw.close()
+
+
+def _get_tidb_conn():
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    raw = pymysql.connect(
+        host=config.TIDB_HOST,
+        port=config.TIDB_PORT,
+        user=config.TIDB_USER,
+        password=config.TIDB_PASSWORD,
+        database=config.TIDB_DATABASE,
+        ssl=ctx,
+        autocommit=False,
+        charset="utf8mb4"
+    )
+    return TiDBConnWrapper(raw)
+
+
+def get_conn():
     global _initialized
+    if config.is_tidb_enabled() and _HAS_PYMYSQL:
+        conn = _get_tidb_conn()
+        with _init_lock:
+            if not _initialized:
+                for stmt in _TIDB_SCHEMA.strip().split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        conn.execute(stmt)
+                conn.commit()
+                _initialized = True
+        return conn
+
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -90,17 +194,20 @@ def get_conn() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     with _init_lock:
         if not _initialized:
-            conn.executescript(_SCHEMA)
-            # 重建 FTS 索引，保证历史数据可检索（幂等）
+            conn.executescript(_SQLITE_SCHEMA)
             conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
             conn.commit()
             _initialized = True
     return conn
 
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
+def _row_to_dict(row) -> dict:
     d = dict(row)
-    d["tags"] = json.loads(d["tags"])
+    if isinstance(d.get("tags"), str):
+        try:
+            d["tags"] = json.loads(d["tags"])
+        except Exception:
+            d["tags"] = []
     return d
 
 
@@ -108,22 +215,14 @@ def _normalize(text: str) -> str:
     return re.sub(r"[\s　]+", "", text).lower()
 
 
-def insert_memory(conn: sqlite3.Connection, project: str, item: dict,
+def insert_memory(conn, project: str, item: dict,
                   source_agent: str, source_system: str = "") -> dict:
-    """写入一条记忆；同标题修改保留版本，而不是覆盖原记录。
-
-    - 同 project+category+标题 的活跃记忆：
-        * 内容与 tags 完全一致 → 只刷新来源与时间，不新增版本（merged=True）；
-        * 内容有变化 → 以旧记忆为 supersedes_id 新建一条，旧记忆标记 superseded；
-    - 显式 supersedes_id 优先：用本条覆盖指定旧记忆。
-    """
     now = _now()
     title = item["title"].strip()
     new_tags = item.get("tags", [])
 
     supersedes_id = item.get("supersedes_id")
     if supersedes_id is None:
-        # 合并判定：同 project+category+归一化标题的活跃记忆
         dup = conn.execute(
             "SELECT id, title, content, tags FROM memories WHERE project=? "
             "AND category=? AND status='active' AND archived=0",
@@ -132,13 +231,14 @@ def insert_memory(conn: sqlite3.Connection, project: str, item: dict,
         for row in dup:
             if _normalize(row["title"]) != _normalize(title):
                 continue
-            try:
-                old_tags = json.loads(row["tags"])
-            except (ValueError, TypeError):
-                old_tags = []
+            old_tags = row["tags"] if isinstance(row["tags"], list) else []
+            if isinstance(row["tags"], str):
+                try:
+                    old_tags = json.loads(row["tags"])
+                except Exception:
+                    old_tags = []
             if (row["content"].strip() == item["content"].strip()
                     and old_tags == new_tags):
-                # 内容无变化：只更新来源与时间，避免产生无意义的版本
                 conn.execute(
                     "UPDATE memories SET source_agent=?, source_system=?, "
                     "updated_at=? WHERE id=?",
@@ -150,7 +250,6 @@ def insert_memory(conn: sqlite3.Connection, project: str, item: dict,
                 data = _row_to_dict(out)
                 data["merged"] = True
                 return data
-            # 内容有变化：旧记录作为父版本，新建一条版本记录
             supersedes_id = row["id"]
             break
 
@@ -178,7 +277,7 @@ def insert_memory(conn: sqlite3.Connection, project: str, item: dict,
     return data
 
 
-def search_memories(conn: sqlite3.Connection, project: str | None = None,
+def search_memories(conn, project: str | None = None,
                     category: str | None = None, q: str | None = None,
                     date: str | None = None,
                     include_archived: bool = False,
@@ -194,10 +293,8 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
         where.append("m.category = ?")
         params.append(category)
     if rule_only:
-        # 规则 = tags 含 "rule" 的记忆（约定/决策的置顶形态）
         where.append("m.tags LIKE '%\"rule\"%'")
     if date:
-        # localtime：按服务器本地时区（TZ）归日，避免凌晨记录归到前一天
         where.append("date(m.created_at, 'localtime') = ?")
         params.append(date)
     if not include_archived:
@@ -206,9 +303,7 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
         where.append("m.status = 'active'")
 
     if q:
-        # trigram FTS 对 <3 字符查询无效，退化为 LIKE
-        if len(q.strip()) >= 3:
-            # FTS5 的 MATCH / bm25 左操作数需用 FTS 表名（不能用别名）
+        if not config.is_tidb_enabled() and len(q.strip()) >= 3:
             sql = ("SELECT m.* FROM memories_fts f JOIN memories m "
                    "ON m.id = f.rowid WHERE memories_fts MATCH ?")
             params = ["\"%s\"" % q.replace('"', '""')] + params
@@ -232,14 +327,13 @@ def search_memories(conn: sqlite3.Connection, project: str | None = None,
     return [_row_to_dict(r) for r in rows]
 
 
-def get_memory(conn: sqlite3.Connection, memory_id: int) -> dict | None:
+def get_memory(conn, memory_id: int) -> dict | None:
     row = conn.execute("SELECT * FROM memories WHERE id=?",
                        (memory_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 
-def update_memory(conn: sqlite3.Connection, memory_id: int,
-                  fields: dict) -> dict | None:
+def update_memory(conn, memory_id: int, fields: dict) -> dict | None:
     allowed = {k: v for k, v in fields.items() if v is not None}
     if "tags" in allowed:
         allowed["tags"] = json.dumps(allowed["tags"], ensure_ascii=False)
@@ -253,7 +347,7 @@ def update_memory(conn: sqlite3.Connection, memory_id: int,
     return get_memory(conn, memory_id)
 
 
-def delete_memory(conn: sqlite3.Connection, memory_id: int) -> bool:
+def delete_memory(conn, memory_id: int) -> bool:
     cur = conn.execute("DELETE FROM memories WHERE id=?", (memory_id,))
     conn.commit()
     return cur.rowcount > 0
@@ -262,14 +356,8 @@ def delete_memory(conn: sqlite3.Connection, memory_id: int) -> bool:
 _CATEGORIES = {"decision", "lesson", "convention", "context", "archive"}
 
 
-def import_memories(conn: sqlite3.Connection, items: list[dict],
+def import_memories(conn, items: list[dict],
                     agent: str = "import", system: str = "") -> dict:
-    """把导出的 memories.json 条目合并进当前库（用于迁移到新实例）。
-
-    去重：同 project+category+title+content 视为同一条，直接跳过；
-    保留原始时间戳、归档标记、状态与来源；supersedes_id 按本次导入的
-    旧 ID → 新 ID 映射重建，映射不到则置空。返回导入/跳过统计。
-    """
     now = _now()
     imported = skipped = 0
     id_map: dict[int, int] = {}
@@ -315,12 +403,8 @@ def import_memories(conn: sqlite3.Connection, items: list[dict],
     return {"imported": imported, "skipped": skipped, "total": len(items)}
 
 
-def daily_rows(conn: sqlite3.Connection, project: str, date: str,
+def daily_rows(conn, project: str, date: str,
                include_archived: bool = False) -> list[dict]:
-    """取某一天（服务器本地日期）的记忆，供 AI 做每日归档。
-
-    archive 类记忆本身是归档产物，不参与待归档列表。
-    """
     where = ["project=?", "date(created_at, 'localtime')=?", "status='active'",
              "category != 'archive'"]
     params: list = [project, date]
@@ -333,7 +417,7 @@ def daily_rows(conn: sqlite3.Connection, project: str, date: str,
     return [_row_to_dict(r) for r in rows]
 
 
-def mark_archived(conn: sqlite3.Connection, ids: list[int]) -> int:
+def mark_archived(conn, ids: list[int]) -> int:
     if not ids:
         return 0
     now = _now()
@@ -346,10 +430,9 @@ def mark_archived(conn: sqlite3.Connection, ids: list[int]) -> int:
     return cur.rowcount
 
 
-def period_rows(conn: sqlite3.Connection, project: str,
+def period_rows(conn, project: str,
                 start: str, end: str,
                 include_archived: bool = False) -> list[dict]:
-    """某段周期（start~end，YYYY-MM-DD）内的记忆，按时间正序。"""
     sql = ("SELECT * FROM memories WHERE project=? AND status='active' "
            "AND date(created_at,'localtime') BETWEEN ? AND ?")
     params: list = [project, start, end]
@@ -360,12 +443,7 @@ def period_rows(conn: sqlite3.Connection, project: str,
     return [_row_to_dict(r) for r in rows]
 
 
-def bootstrap_rows(conn: sqlite3.Connection, project: str,
-                   limit: int = 20) -> list[dict]:
-    """会话开始时的必读记忆：项目约定与有效决策。
-
-    规则（tags 含 "rule"）置顶排最前，其余按最近更新排序。
-    """
+def bootstrap_rows(conn, project: str, limit: int = 20) -> list[dict]:
     rows = conn.execute(
         "SELECT * FROM memories WHERE project=? AND status='active' "
         "AND archived=0 AND category IN ('convention','decision') "
@@ -376,10 +454,9 @@ def bootstrap_rows(conn: sqlite3.Connection, project: str,
     return [_row_to_dict(r) for r in rows]
 
 
-def log_audit(conn: sqlite3.Connection, action: str, project: str = "",
+def log_audit(conn, action: str, project: str = "",
               agent: str = "", system: str = "",
               memory_id: int | None = None, detail: str = "") -> None:
-    """审计留痕：记录谁在何时读写了哪个项目/哪条记忆。"""
     conn.execute(
         "INSERT INTO audit_log (ts, action, project, agent, system, "
         "memory_id, detail) VALUES (?,?,?,?,?,?,?)",
@@ -388,8 +465,7 @@ def log_audit(conn: sqlite3.Connection, action: str, project: str = "",
     conn.commit()
 
 
-def audit_rows(conn: sqlite3.Connection, project: str | None = None,
-               limit: int = 50) -> list[dict]:
+def audit_rows(conn, project: str | None = None, limit: int = 50) -> list[dict]:
     if project:
         rows = conn.execute(
             "SELECT * FROM audit_log WHERE project=? ORDER BY id DESC LIMIT ?",

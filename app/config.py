@@ -8,6 +8,17 @@ DATA_DIR = Path(os.environ.get("MYMEM_DATA_DIR", "./data")).resolve()
 DB_PATH = DATA_DIR / "mymem.sqlite3"
 EXPORT_DIR = DATA_DIR / "exports"
 
+# TiDB / MySQL 配置（配置了 TIDB_HOST 即自动切换为 TiDB 云数据库，未配置则使用本地 SQLite）
+TIDB_HOST = os.environ.get("TIDB_HOST", "")
+TIDB_PORT = int(os.environ.get("TIDB_PORT", "4000"))
+TIDB_USER = os.environ.get("TIDB_USER", "")
+TIDB_PASSWORD = os.environ.get("TIDB_PASSWORD", "")
+TIDB_DATABASE = os.environ.get("TIDB_DATABASE", "mymem")
+
+
+def is_tidb_enabled() -> bool:
+    return bool(TIDB_HOST and TIDB_USER and TIDB_PASSWORD)
+
 # 访问令牌：设置后所有 /api 与 /mcp 请求需带 Authorization: Bearer <token>
 API_TOKEN = os.environ.get("MYMEM_TOKEN", "")
 
