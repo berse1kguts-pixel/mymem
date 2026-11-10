@@ -6,7 +6,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from . import backup, db, models, security
+from . import backup, config, db, models, security
 
 router = APIRouter(prefix="/api/v1")
 
@@ -274,3 +274,24 @@ def import_all(payload: dict = Body(...)):
     security.log("write", "", detail="import %d skipped %d"
                  % (result["imported"], result["skipped"]))
     return result
+
+
+@router.get("/status")
+def get_status():
+    conn = db.get_conn()
+    total = 0
+    try:
+        cur = conn.execute("SELECT COUNT(*) as c FROM memories")
+        row = cur.fetchone()
+        if isinstance(row, dict):
+            total = row.get("c", 0)
+        elif row:
+            total = row[0]
+    except Exception as e:
+        total = str(e)
+    return {
+        "status": "ok",
+        "backend": "tidb" if config.is_tidb_enabled() else "sqlite",
+        "tidb_configured": config.is_tidb_enabled(),
+        "total_memories": total
+    }
