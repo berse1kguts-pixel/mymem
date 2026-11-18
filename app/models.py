@@ -36,7 +36,7 @@ class IngestRequest(BaseModel):
 class MemoryOut(BaseModel):
     id: int
     project: str
-    category: Category
+    category: str  # 读取时不强制枚举，兼容历史脏数据（如 architecture）
     title: str
     content: str
     tags: list[str]
